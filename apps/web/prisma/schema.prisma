@@ -1,0 +1,418 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// User & Authentication
+// ============================================================================
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  accounts      Account[]
+  sessions      Session[]
+  profile       UserProfile?
+  tasks         Task[]
+  attachments   TaskAttachment[]
+  artifacts     TaskArtifact[]
+  usageLedger   UsageLedger[]
+  subscription  Subscription?
+  preferences   UserPreference[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@index([email])
+}
+
+model UserProfile {
+  id              String  @id @default(cuid())
+  userId          String  @unique
+  termsAcceptedAt DateTime?
+  privacyAcceptedAt DateTime?
+  notificationsEnabled Boolean @default(false)
+  timezone        String  @default("UTC")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================================
+// Tasks & Workflows
+// ============================================================================
+
+model Task {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String
+  title               String    @db.VarChar(500)
+  originalGoal        String    @db.Text
+  normalizedObjective String?   @db.Text
+  deadline            DateTime?
+  priority            TaskPriority @default(MEDIUM)
+  status              TaskStatus   @default(DRAFT)
+  completionCriteria  String?   @db.Text
+  context             String?   @db.Text
+  workflowVersion     Int       @default(1)
+  progressPercent     Int       @default(0)
+  finalOutcome        String?   @db.Text
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  completedAt         DateTime?
+
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  steps       WorkflowStep[]
+  artifacts   TaskArtifact[]
+  attachments TaskAttachment[]
+  events      TaskEvent[]
+  approvals   ApprovalRequest[]
+  usageLedger UsageLedger[]
+
+  @@index([userId, status])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, updatedAt(sort: Desc)])
+}
+
+model WorkflowStep {
+  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId             String     @db.Uuid
+  title              String     @db.VarChar(500)
+  description        String     @default("") @db.Text
+  stepType           StepType
+  order              Int
+  status             StepStatus @default(PENDING)
+  dependencies       String[]   @db.Uuid
+  inputRequirements  String?    @db.Text
+  executionStrategy  String?    @db.Text
+  expectedOutput     String?    @db.Text
+  actualOutput       String?    @db.Text
+  artifactId         String?    @db.Uuid
+  errorDetails       String?    @db.Text
+  retryCount         Int        @default(0)
+  maxRetries         Int        @default(3)
+  requiresApproval   Boolean    @default(false)
+  verificationMethod String?    @db.Text
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  task      Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  artifact  TaskArtifact?    @relation(fields: [artifactId], references: [id])
+  approvals ApprovalRequest[]
+  usageLedger UsageLedger[]
+
+  @@index([taskId, order])
+  @@index([taskId, status])
+}
+
+model TaskArtifact {
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId    String       @db.Uuid
+  stepId    String?      @db.Uuid
+  userId    String
+  title     String       @db.VarChar(500)
+  type      ArtifactType
+  content   String       @db.Text
+  version   Int          @default(1)
+  isEdited  Boolean      @default(false)
+  metadata  Json?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  task  Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  steps WorkflowStep[]
+
+  @@index([taskId])
+  @@index([userId])
+}
+
+model TaskAttachment {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId        String?  @db.Uuid
+  userId        String
+  fileName      String   @db.VarChar(255)
+  fileType      String   @db.VarChar(100)
+  fileSize      Int
+  storageKey    String
+  extractedText String?  @db.Text
+  createdAt     DateTime @default(now())
+
+  task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId])
+}
+
+model TaskEvent {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId    String   @db.Uuid
+  type      String   @db.VarChar(100)
+  message   String   @db.Text
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt(sort: Desc)])
+}
+
+model ApprovalRequest {
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId      String         @db.Uuid
+  stepId      String         @db.Uuid
+  description String         @db.Text
+  status      ApprovalStatus @default(PENDING)
+  response    String?        @db.Text
+  createdAt   DateTime       @default(now())
+  respondedAt DateTime?
+
+  task Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  step WorkflowStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([stepId])
+}
+
+// ============================================================================
+// Subscriptions & Usage
+// ============================================================================
+
+model Subscription {
+  id                  String             @id @default(cuid())
+  userId              String             @unique
+  tier                SubscriptionTier   @default(FREE)
+  status              SubscriptionStatus @default(ACTIVE)
+  externalId          String?            @unique
+  externalCustomerId  String?
+  currentPeriodStart  DateTime           @default(now())
+  currentPeriodEnd    DateTime?
+  cancelledAt         DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events SubscriptionEvent[]
+}
+
+model SubscriptionEvent {
+  id              String   @id @default(cuid())
+  subscriptionId  String
+  externalEventId String?  @unique
+  type            String   @db.VarChar(100)
+  payload         Json?
+  createdAt       DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+}
+
+model UsageLedger {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String
+  taskId          String?  @db.Uuid
+  stepId          String?  @db.Uuid
+  provider        String   @db.VarChar(50)
+  model           String   @db.VarChar(100)
+  inputTokens     Int      @default(0)
+  outputTokens    Int      @default(0)
+  creditsUsed     Int      @default(1)
+  estimatedCostUsd Float   @default(0)
+  createdAt       DateTime @default(now())
+
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  step WorkflowStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([userId, taskId])
+}
+
+model UserPreference {
+  id     String @id @default(cuid())
+  userId String
+  key    String @db.VarChar(100)
+  value  String @db.Text
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String
+  eventType  String   @db.VarChar(100)
+  properties Json?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([eventType, createdAt])
+}
+
+// ============================================================================
+// Background Jobs
+// ============================================================================
+
+model JobRecord {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type           String    @db.VarChar(100)
+  payload        Json
+  status         JobStatus @default(PENDING)
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3)
+  idempotencyKey String?   @unique
+  result         Json?
+  error          String?   @db.Text
+  scheduledFor   DateTime  @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, scheduledFor])
+  @@index([type, status])
+}
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum TaskStatus {
+  DRAFT
+  PLANNING
+  READY
+  IN_PROGRESS
+  WAITING_FOR_USER
+  BLOCKED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum StepStatus {
+  PENDING
+  READY
+  RUNNING
+  WAITING_FOR_APPROVAL
+  COMPLETED
+  FAILED
+  SKIPPED
+  BLOCKED
+}
+
+enum StepType {
+  GENERATE_TEXT
+  DRAFT_EMAIL
+  SUMMARIZE_DOCUMENT
+  EXTRACT_INFORMATION
+  ANALYZE_IMAGE
+  GENERATE_CHECKLIST
+  COMPARE_INFORMATION
+  CREATE_REPORT
+  PRODUCE_PLAN
+  REQUEST_USER_INPUT
+  REQUEST_APPROVAL
+  MARK_COMPLETE
+  VERIFY_ARTIFACT
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ArtifactType {
+  TEXT
+  MARKDOWN
+  EMAIL_DRAFT
+  CHECKLIST
+  REPORT
+  SUMMARY
+  PLAN
+  EXTRACTED_DATA
+  ANALYSIS
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum SubscriptionTier {
+  FREE
+  PLUS
+  PRO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+  TRIALING
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  DEAD_LETTER
+}

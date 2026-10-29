@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Velora",
+    "slug": "velora",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0f0f11"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.velora.app"
+    },
+    "android": {
+      "package": "com.velora.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0f0f11"
+      },
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "velora",
+    "extra": {
+      "apiUrl": "https://veloraweb.online/api",
+      "eas": {
+        "projectId": "velora-task-engine"
+      }
+    }
+  }
+}

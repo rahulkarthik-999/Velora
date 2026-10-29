@@ -2,46 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
 @layer base {
+  * {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
   html {
     @apply bg-velora-bg text-velora-text antialiased;
+    color-scheme: dark;
   }
   body {
-    @apply min-h-screen;
+    @apply min-h-screen bg-velora-bg font-sans selection:bg-velora-violet/30 selection:text-white;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-velora-violet hover:bg-velora-violet-hover text-white font-medium px-6 py-2.5 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-velora-violet focus:ring-offset-2 focus:ring-offset-velora-bg disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center font-medium px-4 py-2 rounded-lg bg-velora-text text-velora-bg hover:bg-white transition-all duration-150 text-sm shadow-sm active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none;
   }
   .btn-secondary {
-    @apply bg-velora-surface hover:bg-velora-surface-hover text-velora-text border border-velora-border px-6 py-2.5 rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-velora-violet focus:ring-offset-2 focus:ring-offset-velora-bg;
+    @apply inline-flex items-center justify-center font-medium px-4 py-2 rounded-lg bg-velora-surface border border-velora-border hover:bg-velora-surface-hover text-velora-text transition-all duration-150 text-sm active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none;
   }
   .btn-ghost {
-    @apply text-velora-text-secondary hover:text-velora-text hover:bg-velora-surface-hover px-4 py-2 rounded-lg transition-all duration-200;
+    @apply inline-flex items-center justify-center font-medium px-3 py-1.5 rounded-lg text-velora-text-secondary hover:text-velora-text hover:bg-velora-surface transition-all duration-150 text-sm;
   }
   .card {
-    @apply bg-velora-surface border border-velora-border rounded-xl p-6;
-  }
-  .input-field {
-    @apply w-full bg-velora-bg border border-velora-border rounded-lg px-4 py-3 text-velora-text placeholder:text-velora-text-muted focus:outline-none focus:ring-2 focus:ring-velora-violet focus:border-transparent transition-all duration-200;
+    @apply bg-velora-surface border border-velora-border rounded-xl transition-all duration-200;
   }
 }
 
-/* Scrollbar styling */
+/* Subtle, sleek custom scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: rgba(255, 255, 255, 0.22);
 }

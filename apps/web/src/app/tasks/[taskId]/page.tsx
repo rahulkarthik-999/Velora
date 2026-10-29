@@ -6,9 +6,6 @@ import Link from 'next/link';
 import {
   ArrowLeft,
   Play,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
   Check,
   X,
   RotateCcw,
@@ -19,9 +16,8 @@ import {
   Save,
   Trash2,
   Loader2,
-  ChevronRight,
-  ShieldAlert,
-  Sparkles,
+  Copy,
+  CheckCheck,
 } from 'lucide-react';
 import { formatRelativeTime } from '@/lib/utils';
 
@@ -75,6 +71,7 @@ export default function TaskWorkspacePage() {
   const [editingArtifact, setEditingArtifact] = useState(false);
   const [editedContent, setEditedContent] = useState('');
   const [savingArtifact, setSavingArtifact] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const fetchTask = async () => {
     try {
@@ -181,6 +178,12 @@ export default function TaskWorkspacePage() {
     }
   };
 
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const handleExport = (content: string, filename: string, ext = 'md') => {
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -192,7 +195,7 @@ export default function TaskWorkspacePage() {
   };
 
   const handleDeleteTask = async () => {
-    if (!confirm('Are you sure you want to permanently delete this task workspace?')) return;
+    if (!confirm('Permanently delete this task workspace?')) return;
     try {
       await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
       router.push('/dashboard');
@@ -204,20 +207,18 @@ export default function TaskWorkspacePage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-velora-bg flex items-center justify-center text-xs text-velora-text-muted gap-2">
-        <Loader2 className="w-5 h-5 animate-spin text-velora-violet" />
-        <span>Loading Execution Workspace...</span>
+        <Loader2 className="w-4 h-4 animate-spin text-white" />
+        <span>Loading workspace...</span>
       </div>
     );
   }
 
   if (error || !task) {
     return (
-      <div className="min-h-screen bg-velora-bg flex flex-col items-center justify-center p-4">
-        <div className="card p-8 text-center max-w-md space-y-4">
-          <AlertCircle className="w-8 h-8 text-red-400 mx-auto" />
-          <h2 className="text-base font-bold text-velora-text">Unable to Load Task</h2>
-          <p className="text-xs text-velora-text-muted">{error || 'Task not found'}</p>
-          <Link href="/dashboard" className="btn-primary inline-flex text-xs py-2 px-4">
+      <div className="min-h-screen bg-velora-bg flex flex-col items-center justify-center p-6">
+        <div className="card p-8 text-center max-w-sm space-y-4">
+          <p className="text-xs text-velora-text-secondary">{error || 'Task not found'}</p>
+          <Link href="/dashboard" className="btn-primary text-xs py-1.5 px-4">
             Return to Dashboard
           </Link>
         </div>
@@ -226,184 +227,136 @@ export default function TaskWorkspacePage() {
   }
 
   return (
-    <div className="min-h-screen bg-velora-bg text-velora-text flex flex-col pb-16">
-      {/* Top Workspace Header */}
-      <header className="sticky top-0 z-40 bg-velora-bg/90 backdrop-blur-md border-b border-velora-border px-4 sm:px-6 py-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="min-h-screen bg-velora-bg text-velora-text flex flex-col">
+      {/* Top Precision Header */}
+      <header className="border-b border-velora-border sticky top-0 z-40 bg-velora-bg/90 backdrop-blur-md px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-4 min-w-0">
           <Link
             href="/dashboard"
-            className="p-1.5 rounded-lg text-velora-text-secondary hover:text-velora-text hover:bg-velora-surface border border-velora-border"
+            className="p-1 rounded-md text-velora-text-muted hover:text-white hover:bg-velora-surface transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base sm:text-lg font-bold text-velora-text truncate max-w-[300px] sm:max-w-md">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-sm font-semibold text-white truncate max-w-sm sm:max-w-md">
                 {task.title}
               </h1>
               <span
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
                   task.status === 'COMPLETED'
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : task.status === 'WAITING_FOR_USER'
-                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                    : 'bg-velora-violet-bg text-velora-violet-light border border-velora-violet-border'
+                    ? 'bg-emerald-500/10 text-emerald-400'
+                    : 'bg-velora-surface border border-velora-border text-velora-text-secondary'
                 }`}
               >
-                {task.status.replace(/_/g, ' ')}
+                {task.status}
               </span>
             </div>
-            <p className="text-[11px] text-velora-text-muted truncate max-w-lg hidden sm:block">
-              {task.originalGoal}
-            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex flex-col items-end mr-2">
-            <span className="text-[11px] text-velora-text-muted">Workflow Progress</span>
-            <div className="w-32 bg-zinc-800 rounded-full h-1.5 mt-1 overflow-hidden">
-              <div
-                className={`h-full transition-all ${
-                  task.progressPercent === 100 ? 'bg-emerald-500' : 'bg-velora-violet'
-                }`}
-                style={{ width: `${task.progressPercent}%` }}
-              />
-            </div>
-          </div>
+        <div className="flex items-center gap-4 flex-shrink-0">
+          <span className="text-xs font-mono text-velora-text-secondary">
+            {task.progressPercent}% completed
+          </span>
           <button
             onClick={handleDeleteTask}
-            className="p-2 rounded-lg text-velora-text-muted hover:text-red-400 hover:bg-velora-surface border border-velora-border transition-colors"
-            title="Delete Task"
+            className="text-velora-text-muted hover:text-rose-400 transition-colors p-1"
+            title="Delete task"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
       </header>
 
-      {/* Main Workspace Grid: Left = Workflow Steps, Right = Live Deliverables/Artifacts */}
-      <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 grid lg:grid-cols-12 gap-6 flex-1">
-        {/* Left Column: Workflow Steps Engine (7 cols) */}
-        <div className="lg:col-span-7 space-y-6">
+      {/* Two-Pane Workspace Grid */}
+      <div className="max-w-7xl mx-auto w-full px-6 py-6 grid lg:grid-cols-12 gap-8 flex-1">
+        {/* Left Column: Ordered Steps Engine (6 cols) */}
+        <div className="lg:col-span-6 space-y-6">
           {/* Objective Summary Card */}
-          <div className="card p-4 bg-velora-surface/60 border-velora-border">
-            <div className="flex items-center gap-2 text-xs font-semibold text-velora-violet-light mb-1 uppercase tracking-wider">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Target Objective</span>
-            </div>
-            <p className="text-xs text-velora-text leading-relaxed">
+          <div className="p-4 rounded-xl border border-velora-border bg-velora-surface space-y-2">
+            <span className="text-[11px] font-mono text-velora-text-muted uppercase tracking-wider block">
+              Objective &amp; Success Criteria
+            </span>
+            <p className="text-xs text-white leading-relaxed">
               {task.normalizedObjective || task.originalGoal}
             </p>
             {task.completionCriteria && (
-              <div className="mt-3 pt-2.5 border-t border-velora-border text-[11px] text-velora-text-muted">
-                <span className="font-semibold text-zinc-300">Completion Condition:</span>{' '}
+              <p className="text-[11px] text-velora-text-secondary pt-2 border-t border-velora-border">
                 {task.completionCriteria}
-              </div>
+              </p>
             )}
           </div>
 
-          {/* Workflow Steps List */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <h2 className="text-sm font-bold text-velora-text">Execution Steps ({task.steps.length})</h2>
-              <span className="text-xs text-velora-text-muted">
-                {task.steps.filter((s) => s.status === 'COMPLETED').length} / {task.steps.length} completed
-              </span>
+          {/* Steps List */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between text-xs text-velora-text-muted font-mono pb-1">
+              <span>WORKFLOW STEPS ({task.steps.length})</span>
+              <span>{task.steps.filter((s) => s.status === 'COMPLETED').length}/{task.steps.length} DONE</span>
             </div>
 
-            {task.steps.map((step, index) => {
+            {task.steps.map((step, idx) => {
               const isExecuting = executingStepId === step.id;
               const isReady = step.status === 'READY';
               const isCompleted = step.status === 'COMPLETED';
               const isWaitingApproval = step.status === 'WAITING_FOR_APPROVAL';
               const isFailed = step.status === 'FAILED';
-              const isPending = step.status === 'PENDING';
 
               return (
                 <div
                   key={step.id}
-                  className={`card p-4 transition-all ${
+                  className={`p-3.5 rounded-xl border transition-colors ${
                     isCompleted
-                      ? 'border-zinc-800 bg-velora-surface/40'
+                      ? 'border-velora-border bg-velora-surface/50'
                       : isReady || isWaitingApproval
-                      ? 'border-velora-violet/60 bg-velora-surface shadow-md'
-                      : 'border-velora-border bg-velora-surface/60 opacity-80'
+                      ? 'border-velora-border-strong bg-velora-surface'
+                      : 'border-velora-border bg-velora-surface/30 opacity-70'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5">
-                        {isCompleted ? (
-                          <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-                            <Check className="w-3 h-3 stroke-[3]" />
-                          </div>
-                        ) : isWaitingApproval ? (
-                          <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center">
-                            <ShieldAlert className="w-3 h-3" />
-                          </div>
-                        ) : isExecuting ? (
-                          <div className="w-5 h-5 rounded-full bg-velora-violet/20 text-velora-violet flex items-center justify-center">
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          </div>
-                        ) : isFailed ? (
-                          <div className="w-5 h-5 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center">
-                            <X className="w-3 h-3" />
-                          </div>
-                        ) : (
-                          <div className="w-5 h-5 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center text-[10px] font-bold">
-                            {index + 1}
-                          </div>
-                        )}
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] text-velora-text-muted">
+                          0{idx + 1}
+                        </span>
+                        <span className="text-xs font-semibold text-white">{step.title}</span>
+                        <span className="text-[10px] font-mono text-velora-text-muted">
+                          {step.stepType}
+                        </span>
                       </div>
-
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-xs font-semibold text-velora-text">{step.title}</h3>
-                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">
-                            {step.stepType}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-velora-text-secondary mt-0.5 leading-relaxed">
-                          {step.description}
-                        </p>
-
-                        {step.errorDetails && (
-                          <div className="mt-2 p-2 rounded bg-red-500/10 border border-red-500/20 text-[11px] text-red-400">
-                            Error: {step.errorDetails}
-                          </div>
-                        )}
-                      </div>
+                      <p className="text-xs text-velora-text-secondary leading-relaxed pl-5">
+                        {step.description}
+                      </p>
                     </div>
 
-                    {/* Step Action Buttons */}
+                    {/* Step Action Controls */}
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       {isReady && (
                         <button
                           onClick={() => handleExecuteStep(step.id)}
                           disabled={isExecuting}
-                          className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1.5 font-semibold"
+                          className="btn-primary text-xs py-1 px-3 flex items-center gap-1"
                         >
                           {isExecuting ? (
                             <Loader2 className="w-3 h-3 animate-spin" />
                           ) : (
-                            <Play className="w-3 h-3 fill-current" />
+                            <Play className="w-2.5 h-2.5 fill-current" />
                           )}
-                          <span>Run Step</span>
+                          <span>Run</span>
                         </button>
                       )}
 
                       {isWaitingApproval && (
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1">
                           <button
                             onClick={() => handleApproveStep(step.id, true)}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium px-2 py-1 rounded-md"
                           >
-                            <Check className="w-3 h-3" />
-                            <span>Approve</span>
+                            Approve
                           </button>
                           <button
                             onClick={() => handleApproveStep(step.id, false)}
-                            className="bg-red-600/80 hover:bg-red-600 text-white text-xs font-semibold px-2 py-1.5 rounded-lg transition-colors"
+                            className="bg-rose-600/80 hover:bg-rose-600 text-white text-xs font-medium px-2 py-1 rounded-md"
                           >
                             Reject
                           </button>
@@ -416,39 +369,33 @@ export default function TaskWorkspacePage() {
                           disabled={isExecuting}
                           className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1 text-amber-400"
                         >
-                          <RotateCcw className="w-3 h-3" />
+                          <RotateCcw className="w-2.5 h-2.5" />
                           <span>Retry</span>
                         </button>
                       )}
 
-                      {(isReady || isPending) && (
-                        <button
-                          onClick={() => handleSkipStep(step.id)}
-                          className="btn-ghost text-[11px] p-1.5 text-zinc-500 hover:text-zinc-300"
-                          title="Skip step"
-                        >
-                          <SkipForward className="w-3.5 h-3.5" />
-                        </button>
+                      {isCompleted && (
+                        <div className="flex items-center gap-1 text-emerald-400 text-xs font-mono">
+                          <Check className="w-3.5 h-3.5" />
+                        </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Step Artifact link if output generated */}
+                  {/* Output Preview Pill */}
                   {step.actualOutput && (
-                    <div className="mt-3 pt-2 border-t border-velora-border/60 flex items-center justify-between text-[11px]">
-                      <span className="text-emerald-400 font-medium flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Deliverable Produced</span>
+                    <div className="mt-2.5 pt-2 border-t border-velora-border flex items-center justify-between text-[11px]">
+                      <span className="text-velora-text-muted font-mono truncate max-w-xs">
+                        Deliverable generated
                       </span>
                       <button
                         onClick={() => {
                           const art = task.artifacts.find((a) => a.id === step.artifactId);
                           if (art) setSelectedArtifact(art);
                         }}
-                        className="text-velora-violet-light hover:underline flex items-center gap-1"
+                        className="text-white hover:underline"
                       >
-                        <span>View Artifact</span>
-                        <ChevronRight className="w-3 h-3" />
+                        Open in studio &rarr;
                       </button>
                     </div>
                   )}
@@ -456,39 +403,30 @@ export default function TaskWorkspacePage() {
               );
             })}
           </div>
-
-          {/* Activity Timeline Events */}
-          <div className="card p-4 space-y-3">
-            <h3 className="text-xs font-bold text-velora-text uppercase tracking-wider">
-              Execution Event Log
-            </h3>
-            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {task.events.map((evt) => (
-                <div key={evt.id} className="text-[11px] flex items-start justify-between gap-2 border-b border-velora-border/40 pb-1.5">
-                  <span className="text-velora-text-secondary">{evt.message}</span>
-                  <span className="text-velora-text-muted flex-shrink-0">{formatRelativeTime(evt.createdAt)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
-        {/* Right Column: Generated Deliverables / Artifacts Viewer & Editor (5 cols) */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="card p-5 h-full flex flex-col justify-between border-velora-border-light shadow-xl bg-velora-surface/90">
+        {/* Right Column: Artifact Studio (6 cols) */}
+        <div className="lg:col-span-6 space-y-4">
+          <div className="card p-5 border-velora-border-strong bg-velora-surface h-full flex flex-col justify-between">
             <div>
-              {/* Artifact Selector Header */}
+              {/* Studio Header */}
               <div className="flex items-center justify-between pb-3 border-b border-velora-border">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-velora-violet-light" />
-                  <span className="text-xs font-bold text-velora-text">Artifact Studio</span>
-                </div>
+                <span className="text-xs font-mono text-velora-text-muted uppercase tracking-wider">
+                  Deliverable Artifacts
+                </span>
                 {selectedArtifact && (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleCopy(selectedArtifact.content)}
+                      className="p-1 rounded text-velora-text-secondary hover:text-white"
+                      title="Copy text"
+                    >
+                      {copied ? <CheckCheck className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
                     <button
                       onClick={() => handleExport(selectedArtifact.content, selectedArtifact.title, 'md')}
-                      className="p-1 rounded text-velora-text-muted hover:text-velora-text hover:bg-velora-bg"
-                      title="Export as Markdown"
+                      className="p-1 rounded text-velora-text-secondary hover:text-white"
+                      title="Download Markdown"
                     >
                       <Download className="w-3.5 h-3.5" />
                     </button>
@@ -501,8 +439,8 @@ export default function TaskWorkspacePage() {
                           setEditingArtifact(true);
                         }
                       }}
-                      className="p-1 rounded text-velora-text-muted hover:text-velora-text hover:bg-velora-bg"
-                      title={editingArtifact ? 'Cancel Edit' : 'Edit Artifact'}
+                      className="p-1 rounded text-velora-text-secondary hover:text-white"
+                      title="Edit content"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
                     </button>
@@ -510,9 +448,9 @@ export default function TaskWorkspacePage() {
                 )}
               </div>
 
-              {/* Artifact Selection Tabs */}
+              {/* Artifact Selector Tabs */}
               {task.artifacts.length > 0 ? (
-                <div className="flex gap-2 py-3 overflow-x-auto border-b border-velora-border">
+                <div className="flex gap-1.5 py-3 overflow-x-auto border-b border-velora-border">
                   {task.artifacts.map((art) => (
                     <button
                       key={art.id}
@@ -520,10 +458,10 @@ export default function TaskWorkspacePage() {
                         setSelectedArtifact(art);
                         setEditingArtifact(false);
                       }}
-                      className={`text-xs px-2.5 py-1 rounded-md font-medium whitespace-nowrap transition-colors ${
+                      className={`text-xs px-2.5 py-1 rounded-md transition-colors whitespace-nowrap ${
                         selectedArtifact?.id === art.id
-                          ? 'bg-velora-violet text-white shadow-sm'
-                          : 'bg-velora-surface text-velora-text-secondary hover:text-velora-text border border-velora-border'
+                          ? 'bg-white text-black font-medium'
+                          : 'bg-velora-bg text-velora-text-secondary hover:text-white border border-velora-border'
                       }`}
                     >
                       {art.title}
@@ -531,19 +469,17 @@ export default function TaskWorkspacePage() {
                   ))}
                 </div>
               ) : (
-                <div className="py-12 text-center text-xs text-velora-text-muted">
-                  No deliverables produced yet. Run the workflow steps to generate content.
+                <div className="py-16 text-center text-xs text-velora-text-muted">
+                  Run steps on the left to generate reviewable deliverables.
                 </div>
               )}
 
-              {/* Artifact Display / Editor */}
+              {/* Artifact Content Viewer / Editor */}
               {selectedArtifact && (
-                <div className="mt-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-velora-text">{selectedArtifact.title}</span>
-                    <span className="text-[10px] text-velora-text-muted">
-                      v{selectedArtifact.version} {selectedArtifact.isEdited && '(edited)'}
-                    </span>
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center justify-between text-[11px] text-velora-text-muted font-mono">
+                    <span>{selectedArtifact.title}</span>
+                    <span>v{selectedArtifact.version}</span>
                   </div>
 
                   {editingArtifact ? (
@@ -551,27 +487,27 @@ export default function TaskWorkspacePage() {
                       <textarea
                         value={editedContent}
                         onChange={(e) => setEditedContent(e.target.value)}
-                        className="w-full bg-velora-bg border border-velora-border rounded-lg p-3 text-xs text-velora-text font-mono min-h-[350px] focus:outline-none focus:ring-1 focus:ring-velora-violet resize-none"
+                        className="w-full bg-velora-bg border border-velora-border rounded-lg p-3 text-xs text-white font-mono min-h-[360px] focus:outline-none resize-none"
                       />
                       <div className="flex justify-end gap-2">
                         <button
                           onClick={() => setEditingArtifact(false)}
-                          className="btn-ghost text-xs py-1.5 px-3"
+                          className="btn-ghost text-xs py-1 px-3"
                         >
                           Cancel
                         </button>
                         <button
                           onClick={handleSaveArtifact}
                           disabled={savingArtifact}
-                          className="btn-primary text-xs py-1.5 px-4 flex items-center gap-1.5"
+                          className="btn-primary text-xs py-1 px-3 flex items-center gap-1.5"
                         >
                           {savingArtifact ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                          <span>Save Changes</span>
+                          <span>Save changes</span>
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="bg-velora-bg border border-velora-border rounded-lg p-4 text-xs text-velora-text leading-relaxed whitespace-pre-wrap font-sans max-h-[500px] overflow-y-auto">
+                    <div className="bg-velora-bg border border-velora-border rounded-lg p-4 text-xs text-white leading-relaxed whitespace-pre-wrap font-sans max-h-[500px] overflow-y-auto">
                       {selectedArtifact.content}
                     </div>
                   )}
@@ -579,20 +515,20 @@ export default function TaskWorkspacePage() {
               )}
             </div>
 
-            {/* Attached Files Box */}
+            {/* Attached Files List */}
             {task.attachments.length > 0 && (
-              <div className="mt-6 pt-4 border-t border-velora-border space-y-2">
-                <span className="text-[11px] font-semibold text-velora-text-muted uppercase tracking-wider">
-                  Associated Files ({task.attachments.length})
+              <div className="mt-6 pt-3 border-t border-velora-border text-xs">
+                <span className="text-[11px] font-mono text-velora-text-muted uppercase mb-2 block">
+                  Attached Context
                 </span>
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   {task.attachments.map((file) => (
                     <div
                       key={file.id}
-                      className="flex items-center justify-between text-xs p-2 rounded bg-velora-bg border border-velora-border"
+                      className="flex items-center justify-between text-xs py-1 px-2 rounded bg-velora-bg border border-velora-border"
                     >
-                      <span className="truncate max-w-[200px] text-velora-text-secondary">{file.fileName}</span>
-                      <span className="text-[10px] text-velora-text-muted">
+                      <span className="text-velora-text-secondary truncate">{file.fileName}</span>
+                      <span className="text-[10px] font-mono text-velora-text-muted">
                         {(file.fileSize / 1024).toFixed(0)} KB
                       </span>
                     </div>

@@ -237,13 +237,12 @@ pub fn session_start(app: &AppHandle, mode: SessionMode) -> AppResult<SessionSna
     let model_path = models::installed_path(&state.models_dir, &model)
         .ok_or_else(|| AppError::Internal("The speech model is no longer installed.".into()))?;
 
-    let mut sources = Vec::new();
-    if settings.audio.capture_microphone {
-        sources.push(SourceConfig { kind: SourceKind::Microphone, device_id: settings.audio.microphone_device_id.clone() });
-    }
-    if settings.audio.capture_system_audio {
-        sources.push(SourceConfig { kind: SourceKind::SystemAudio, device_id: settings.audio.system_audio_device_id.clone() });
-    }
+    // Each session type has one source: a live session transcribes the other
+    // side (system audio) and never opens the mic; practice records your mic.
+    let sources = vec![match mode {
+        SessionMode::Live => SourceConfig { kind: SourceKind::SystemAudio, device_id: settings.audio.system_audio_device_id.clone() },
+        SessionMode::Practice => SourceConfig { kind: SourceKind::Microphone, device_id: settings.audio.microphone_device_id.clone() },
+    }];
 
     session.start(mode, now_ms())?;
     let session_id = session.id().expect("started session has an id").to_string();
@@ -256,7 +255,8 @@ pub fn session_start(app: &AppHandle, mode: SessionMode) -> AppResult<SessionSna
         model_path,
         vad: Default::default(),
         transcribe: TranscribeOptions::default(),
-        echo_guard: settings.audio.echo_guard,
+        // Only matters when mic and system audio run together.
+        echo_guard: true,
     };
     match Pipeline::start(cfg, state.db.clone(), pipeline_emitter(app), 0) {
         Ok(p) => *state.pipeline.lock().expect("pipeline lock poisoned") = Some(p),

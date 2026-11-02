@@ -67,6 +67,28 @@ pnpm tauri build
 Build machine needs: VS 2022 Build Tools (C++ workload, includes CMake), Rust stable MSVC, Node + pnpm.
 The exe needs the WebView2 runtime (ships with Windows 10/11) and an AVX2 CPU (most PCs from 2013 on).
 
+## Interview preparation (done)
+
+Velora is an interview **preparation** tool. It does not generate answers during a
+live interview, and its windows stay visible in screen shares, screenshots and the taskbar.
+
+| Feature | Where |
+|---|---|
+| Desktop sign-in via device code; token in Windows Credential Manager; revocable from the website | `src-tauri/src/api.rs`, `prep.rs`; web `api/desktop/auth/*`, `desktop/link` |
+| Resume import (PDF, DOCX, TXT) parsed locally | `src-tauri/src/documents.rs` |
+| AI profile extraction into editable, searchable facts (FTS5 with Porter stemming) | `prep.rs`, `storage/prep.rs` |
+| Jobs with descriptions (paste or import a file) | `JobsPage.tsx` |
+| Practice: AI questions for the role, answer by voice (mic, local transcription) or typing, scored feedback with a model answer grounded in the 4 most relevant facts | `PracticePage.tsx`; web `api/practice/*` |
+| Custom instructions and model-answer style | AI Settings |
+| Usage and plan from the account; monthly credits enforced on the server | `UsagePage`; web `lib/usage.ts` |
+| Record Session: transcribes system audio only (mic never opened) for later review | `LiveInterviewPage.tsx` |
+
+Privacy: the resume, transcripts and audio stay on the PC. Feedback requests send the question, the
+answer text and at most 4 matching facts. Resume extraction sends the resume text when you click
+"Extract facts".
+
+**Needs `db:push`:** the web app's new `Device` and `DeviceAuthRequest` tables (and `StoredFile`).
+
 ## Web app
 
 - Ready for Vercel (see `docs/DEPLOY_VERCEL.md`)

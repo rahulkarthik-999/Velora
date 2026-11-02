@@ -1,7 +1,20 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
+  AccountEvent,
+  AccountStatus,
   AudioDevices,
+  CandidateFact,
+  Difficulty,
+  FactKind,
+  Job,
+  LinkStart,
+  PracticeFocus,
+  PracticeItem,
+  PracticeSessionSummary,
+  PracticeView,
+  ProfileView,
+  ResumeInfo,
   InstallEvent,
   ModelsOverview,
   ModelStatus,
@@ -44,6 +57,29 @@ export const ipc = {
     call<TranscriptSegment>('update_transcript_segment', { id, text }),
   listSessions: () => call<SessionRecord[]>('list_sessions'),
   deleteSession: (id: string) => call<void>('delete_session', { id }),
+  accountStatus: () => call<AccountStatus>('account_status'),
+  accountStartLink: () => call<LinkStart>('account_start_link'),
+  accountCancelLink: () => call<void>('account_cancel_link'),
+  accountSignOut: () => call<void>('account_sign_out'),
+  importResume: (path: string) => call<ResumeInfo>('import_resume', { path }),
+  getResume: () => call<ResumeInfo | null>('get_resume'),
+  readDocument: (path: string) => call<string>('read_document', { path }),
+  getProfile: () => call<ProfileView>('get_profile'),
+  extractProfile: () => call<ProfileView>('extract_profile'),
+  saveFact: (id: string | null, kind: FactKind, text: string) => call<CandidateFact>('save_fact', { id, kind, text }),
+  deleteFact: (id: string) => call<void>('delete_fact', { id }),
+  listJobs: () => call<Job[]>('list_jobs'),
+  saveJob: (job: { id: string | null; title: string; company: string; description: string }) => call<Job>('save_job', job),
+  deleteJob: (id: string) => call<void>('delete_job', { id }),
+  createPractice: (jobId: string, focus: PracticeFocus, difficulty: Difficulty, count: number) =>
+    call<PracticeView>('create_practice', { jobId, focus, difficulty, count }),
+  listPractice: () => call<PracticeSessionSummary[]>('list_practice'),
+  getPractice: (sessionId: string) => call<PracticeItem[]>('get_practice', { sessionId }),
+  deletePractice: (sessionId: string) => call<void>('delete_practice', { sessionId }),
+  savePracticeAnswer: (itemId: string, answer: string) => call<PracticeItem>('save_practice_answer', { itemId, answer }),
+  practiceRecordStart: (itemId: string) => call<void>('practice_record_start', { itemId }),
+  practiceRecordStop: () => call<PracticeItem>('practice_record_stop'),
+  practiceFeedback: (itemId: string) => call<PracticeItem>('practice_feedback', { itemId }),
   showCopilot: () => call<void>('show_copilot'),
   toggleCopilot: () => call<void>('toggle_copilot'),
   showMain: () => call<void>('show_main'),
@@ -67,4 +103,8 @@ export function onAppNotice(cb: (message: string) => void): Promise<UnlistenFn> 
 
 export function onModelInstall(cb: (e: InstallEvent) => void): Promise<UnlistenFn> {
   return listen<InstallEvent>('model-install', (e) => cb(e.payload));
+}
+
+export function onAccountChanged(cb: (e: AccountEvent) => void): Promise<UnlistenFn> {
+  return listen<AccountEvent>('account-changed', (e) => cb(e.payload));
 }

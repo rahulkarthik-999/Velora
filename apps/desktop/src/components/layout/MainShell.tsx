@@ -3,6 +3,7 @@ import {
   BarChart3,
   Briefcase,
   FileText,
+  GraduationCap,
   History,
   LayoutDashboard,
   Radio,
@@ -16,14 +17,18 @@ import { OverviewPage } from '../dashboard/OverviewPage';
 import { LiveInterviewPage } from '../dashboard/LiveInterviewPage';
 import { SessionsPage } from '../dashboard/SessionsPage';
 import { SettingsPage } from '../settings/SettingsPage';
-import { PlannedFeature } from './PlannedFeature';
+import { AccountPage, UsagePage } from '../account/AccountPage';
+import { JobsPage } from '../prep/JobsPage';
+import { PracticePage } from '../prep/PracticePage';
+import { ResumePage } from '../prep/ResumePage';
 
 const NAV: { page: Page; label: string; Icon: typeof LayoutDashboard }[] = [
   { page: 'overview', label: 'Overview', Icon: LayoutDashboard },
-  { page: 'live', label: 'Live Interview', Icon: Radio },
-  { page: 'sessions', label: 'Interview Sessions', Icon: History },
+  { page: 'practice', label: 'Practice', Icon: GraduationCap },
   { page: 'resume', label: 'My Resume', Icon: FileText },
   { page: 'job', label: 'Job Context', Icon: Briefcase },
+  { page: 'live', label: 'Record Session', Icon: Radio },
+  { page: 'sessions', label: 'Transcripts', Icon: History },
   { page: 'settings', label: 'AI Settings', Icon: SettingsIcon },
   { page: 'usage', label: 'Usage', Icon: BarChart3 },
   { page: 'account', label: 'Account', Icon: User },
@@ -33,6 +38,8 @@ function PageContent({ page }: { page: Page }) {
   switch (page) {
     case 'overview':
       return <OverviewPage />;
+    case 'practice':
+      return <PracticePage />;
     case 'live':
       return <LiveInterviewPage />;
     case 'settings':
@@ -40,41 +47,13 @@ function PageContent({ page }: { page: Page }) {
     case 'sessions':
       return <SessionsPage />;
     case 'resume':
-      return (
-        <PlannedFeature
-          icon={FileText}
-          title="Your resume"
-          description="Import a PDF, DOCX or text resume. Velora extracts your skills, experience and projects so answers use your real background."
-          milestone="Sprint 6"
-        />
-      );
+      return <ResumePage />;
     case 'job':
-      return (
-        <PlannedFeature
-          icon={Briefcase}
-          title="Job context"
-          description="Add the job description and company notes for each interview so suggestions match the role."
-          milestone="Sprint 6"
-        />
-      );
+      return <JobsPage />;
     case 'usage':
-      return (
-        <PlannedFeature
-          icon={BarChart3}
-          title="Usage"
-          description="Your plan limits and AI usage, read from your Velora account. Local transcription never counts against your plan."
-          milestone="Sprint 7"
-        />
-      );
+      return <UsagePage />;
     case 'account':
-      return (
-        <PlannedFeature
-          icon={User}
-          title="Account"
-          description="Sign in to your Velora account and activate this device."
-          milestone="Sprint 4"
-        />
-      );
+      return <AccountPage />;
   }
 }
 

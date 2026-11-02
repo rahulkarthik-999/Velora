@@ -104,16 +104,27 @@ export function SettingsPage() {
             <option value="light">Light</option>
           </select>
         </Row>
-        <Row label="Answer style" hint="How suggested answers are written.">
+        <Row label="Model answer style" hint="How practice feedback writes its example answers.">
           <select
             className="field"
             value={draft.answerStyle}
             onChange={(e) => update({ answerStyle: e.target.value as AnswerStyle })}
           >
-            <option value="concise">Concise: a short answer and key points</option>
-            <option value="detailed">Detailed: fuller explanation</option>
+            <option value="concise">Concise: about 60–90 seconds spoken</option>
+            <option value="detailed">Detailed: about 2 minutes</option>
             <option value="star">STAR: situation, task, action, result</option>
           </select>
+        </Row>
+        <Row label="Custom instructions" hint="Tailors practice questions, feedback and model answers.">
+          <textarea
+            className="field min-h-24"
+            value={draft.customInstructions}
+            maxLength={1500}
+            placeholder="e.g. I'm moving from QA to backend development. Keep answers simple and confident, and focus on Java and system design."
+            onChange={(e) => update({ customInstructions: e.target.value })}
+            aria-label="Custom instructions"
+          />
+          <div className="muted mt-1 text-right text-xs">{draft.customInstructions.length} / 1500</div>
         </Row>
         <Row label="Speech model" hint="Download models on the Overview page.">
           <select
@@ -130,54 +141,23 @@ export function SettingsPage() {
 
       <section className="card divide-y divide-[var(--border)] px-5">
         <h2 className="py-3 text-sm font-semibold">Audio</h2>
-        <Row label="Microphone" hint="Your voice.">
-          <label className="flex items-center gap-2 pb-2">
-            <input
-              type="checkbox"
-              checked={draft.audio.captureMicrophone}
-              onChange={(e) => update({ audio: { ...draft.audio, captureMicrophone: e.target.checked } })}
-            />
-            Transcribe my microphone
-          </label>
+        <Row label="Microphone" hint="Records your answers in Practice.">
           <DeviceSelect
             devices={devices?.inputs}
             value={draft.audio.microphoneDeviceId}
-            disabled={!draft.audio.captureMicrophone}
+            disabled={false}
             label="Microphone device"
             onChange={(id) => update({ audio: { ...draft.audio, microphoneDeviceId: id } })}
           />
         </Row>
-        <Row label="System audio" hint="What plays through your speakers or headphones, usually the interviewer.">
-          <label className="flex items-center gap-2 pb-2">
-            <input
-              type="checkbox"
-              checked={draft.audio.captureSystemAudio}
-              onChange={(e) => update({ audio: { ...draft.audio, captureSystemAudio: e.target.checked } })}
-            />
-            Transcribe system audio
-          </label>
+        <Row label="System audio" hint="What a recorded session transcribes: sound from your speakers or headphones.">
           <DeviceSelect
             devices={devices?.outputs}
             value={draft.audio.systemAudioDeviceId}
-            disabled={!draft.audio.captureSystemAudio}
+            disabled={false}
             label="Output device"
             onChange={(id) => update({ audio: { ...draft.audio, systemAudioDeviceId: id } })}
           />
-        </Row>
-        <Row label="Echo guard" hint="For laptop speakers. Turn off if you use headphones.">
-          <label className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={draft.audio.echoGuard}
-              disabled={!draft.audio.captureMicrophone || !draft.audio.captureSystemAudio}
-              onChange={(e) => update({ audio: { ...draft.audio, echoGuard: e.target.checked } })}
-            />
-            <span>
-              Ignore the microphone while system audio is playing speech, so your mic doesn't pick the other side up from your
-              speakers.
-            </span>
-          </label>
         </Row>
         {devicesError && <p className="py-2 text-sm text-red-400">{devicesError}</p>}
       </section>

@@ -31,6 +31,12 @@ crossbeam-channel = "0.5"
 cpal = "0.17"
 rusqlite = { version = "0.41", features = ["bundled"] }
 ureq = "3"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+pdf-extract = "0.12"
+quick-xml = "0.42"
+keyring = { version = "3", features = ["windows-native"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3"

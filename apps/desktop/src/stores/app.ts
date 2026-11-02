@@ -4,6 +4,7 @@ import type { SessionMode, SessionSnapshot, Settings } from '../types';
 
 export type Page =
   | 'overview'
+  | 'practice'
   | 'live'
   | 'sessions'
   | 'resume'

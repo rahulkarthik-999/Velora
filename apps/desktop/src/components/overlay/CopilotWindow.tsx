@@ -1,6 +1,5 @@
-import type { ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { EyeOff, LayoutDashboard, MessageSquareText, Radio, ScrollText, Sparkles, X } from 'lucide-react';
+import { EyeOff, LayoutDashboard, Radio, ScrollText, X } from 'lucide-react';
 import clsx from 'clsx';
 import { ipc } from '../../lib/ipc';
 import { useApp } from '../../stores/app';
@@ -9,17 +8,6 @@ import { TranscriptView } from '../transcript/TranscriptView';
 import { CaptureIndicators } from '../session/CaptureIndicators';
 import { SessionControls } from '../session/SessionControls';
 import { SessionTimer } from '../session/SessionTimer';
-
-function Panel({ icon: Icon, title, children }: { icon: typeof Radio; title: string; children: ReactNode }) {
-  return (
-    <section className="card p-3">
-      <h2 className="muted mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider">
-        <Icon size={12} /> {title}
-      </h2>
-      <div className="text-[13px]">{children}</div>
-    </section>
-  );
-}
 
 const STATUS_LABEL = { idle: 'No session', active: 'Active', paused: 'Paused', ended: 'Ended' } as const;
 
@@ -43,7 +31,7 @@ export function CopilotWindow() {
       >
         <img src="/logo.png" alt="" className="pointer-events-none h-5 w-5 rounded" />
         <span data-tauri-drag-region className="text-[13px] font-semibold">
-          Velora Copilot
+          Velora Transcript
         </span>
         <span
           data-testid="session-status"
@@ -92,7 +80,7 @@ export function CopilotWindow() {
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
             <Radio size={22} className="text-accent" />
             <p className="font-medium">{status === 'ended' ? 'Session ended' : 'No active session'}</p>
-            <p className="muted text-xs">Start a session from the Live Interview page in the main window.</p>
+            <p className="muted text-xs">Start a recording from the Record Session page in the main window.</p>
             <button className="btn mt-1" onClick={() => ipc.showMain()}>
               Open Velora
             </button>
@@ -123,12 +111,6 @@ export function CopilotWindow() {
                 />
               </div>
             </section>
-            <Panel icon={MessageSquareText} title="Current question">
-              <p className="muted">Question detection arrives in the next build.</p>
-            </Panel>
-            <Panel icon={Sparkles} title="Suggested answer">
-              <p className="muted">Answer suggestions arrive after question detection.</p>
-            </Panel>
           </>
         )}
       </div>

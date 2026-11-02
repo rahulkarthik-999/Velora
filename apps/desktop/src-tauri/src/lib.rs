@@ -1,4 +1,7 @@
+mod api;
 mod audio;
+mod documents;
+mod prep;
 mod transcription;
 mod commands;
 mod error;
@@ -30,6 +33,10 @@ pub struct AppState {
     pub models_dir: PathBuf,
     /// Model currently downloading, with its cancel flag.
     pub installing: Mutex<Option<(String, Arc<AtomicBool>)>>,
+    /// Cancel flag for a desktop sign-in that is waiting for approval.
+    pub linking: Mutex<Option<Arc<AtomicBool>>>,
+    /// Practice question whose answer is being recorded.
+    pub recording_item: Mutex<Option<String>>,
 }
 
 pub fn now_ms() -> u64 {
@@ -52,6 +59,8 @@ pub fn run() {
                 .rotation_strategy(RotationStrategy::KeepOne)
                 .build(),
         )
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(shortcuts::handle)
@@ -69,6 +78,8 @@ pub fn run() {
                 db: Arc::new(db),
                 models_dir: system::models_dir(),
                 installing: Mutex::new(None),
+                linking: Mutex::new(None),
+                recording_item: Mutex::new(None),
             });
 
             // A shortcut taken by another app must not stop Velora from starting.
@@ -110,6 +121,28 @@ pub fn run() {
             commands::update_transcript_segment,
             commands::list_sessions,
             commands::delete_session,
+            prep::account_status,
+            prep::account_start_link,
+            prep::account_cancel_link,
+            prep::account_sign_out,
+            prep::import_resume,
+            prep::get_resume,
+            prep::read_document,
+            prep::get_profile,
+            prep::extract_profile,
+            prep::save_fact,
+            prep::delete_fact,
+            prep::list_jobs,
+            prep::save_job,
+            prep::delete_job,
+            prep::create_practice,
+            prep::list_practice,
+            prep::get_practice,
+            prep::delete_practice,
+            prep::save_practice_answer,
+            prep::practice_record_start,
+            prep::practice_record_stop,
+            prep::practice_feedback,
             commands::show_copilot,
             commands::toggle_copilot,
             commands::show_main,

@@ -49,6 +49,75 @@ const MIGRATIONS: &[&str] = &[
         INSERT INTO transcript_fts(rowid, text) VALUES (new.rowid, new.text);
     END;
     "#,
+    // v2: interview preparation (resume, profile facts, jobs, practice)
+    r#"
+    CREATE TABLE resumes (
+        id             TEXT PRIMARY KEY,
+        file_name      TEXT NOT NULL,
+        text           TEXT NOT NULL,
+        imported_at_ms INTEGER NOT NULL
+    );
+
+    CREATE TABLE candidate_profile (
+        id            INTEGER PRIMARY KEY CHECK (id = 1),
+        resume_id     TEXT REFERENCES resumes(id) ON DELETE SET NULL,
+        json          TEXT NOT NULL,
+        updated_at_ms INTEGER NOT NULL
+    );
+
+    CREATE TABLE candidate_facts (
+        id            TEXT PRIMARY KEY,
+        kind          TEXT NOT NULL CHECK (kind IN ('skill', 'experience', 'project', 'education', 'other')),
+        text          TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL
+    );
+    -- Porter stemming so "migration" matches "migrated", "leading" matches "led"-style variants.
+    CREATE VIRTUAL TABLE candidate_facts_fts USING fts5(
+        text, content='candidate_facts', content_rowid='rowid', tokenize='porter unicode61'
+    );
+    CREATE TRIGGER facts_ai AFTER INSERT ON candidate_facts BEGIN
+        INSERT INTO candidate_facts_fts(rowid, text) VALUES (new.rowid, new.text);
+    END;
+    CREATE TRIGGER facts_ad AFTER DELETE ON candidate_facts BEGIN
+        INSERT INTO candidate_facts_fts(candidate_facts_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+    END;
+    CREATE TRIGGER facts_au AFTER UPDATE OF text ON candidate_facts BEGIN
+        INSERT INTO candidate_facts_fts(candidate_facts_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+        INSERT INTO candidate_facts_fts(rowid, text) VALUES (new.rowid, new.text);
+    END;
+
+    CREATE TABLE jobs (
+        id            TEXT PRIMARY KEY,
+        title         TEXT NOT NULL,
+        company       TEXT NOT NULL DEFAULT '',
+        description   TEXT NOT NULL DEFAULT '',
+        updated_at_ms INTEGER NOT NULL
+    );
+
+    CREATE TABLE practice_sessions (
+        id            TEXT PRIMARY KEY,
+        job_id        TEXT REFERENCES jobs(id) ON DELETE SET NULL,
+        title         TEXT NOT NULL,
+        focus         TEXT NOT NULL,
+        difficulty    TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL
+    );
+
+    CREATE TABLE practice_items (
+        id                   TEXT PRIMARY KEY,
+        session_id           TEXT NOT NULL REFERENCES practice_sessions(id) ON DELETE CASCADE,
+        position             INTEGER NOT NULL,
+        question             TEXT NOT NULL,
+        category             TEXT NOT NULL,
+        focus                TEXT NOT NULL DEFAULT '',
+        answer               TEXT,
+        recording_session_id TEXT,
+        feedback_json        TEXT,
+        score                REAL,
+        updated_at_ms        INTEGER NOT NULL
+    );
+    CREATE INDEX idx_practice_items_session ON practice_items(session_id, position);
+    "#,
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -217,6 +286,10 @@ impl Db {
             .map_err(db_err)
     }
 }
+
+mod prep;
+#[allow(unused_imports)]
+pub use prep::*;
 
 const SEGMENT_SELECT: &str =
     "SELECT id, session_id, source, start_ms, end_ms, text, confidence, corrected FROM transcript_segments";

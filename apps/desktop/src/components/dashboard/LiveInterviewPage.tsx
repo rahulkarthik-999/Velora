@@ -1,45 +1,28 @@
-import { useState } from 'react';
-import { GraduationCap, PanelTopOpen, Radio } from 'lucide-react';
-import clsx from 'clsx';
+import { PanelTopOpen, Radio } from 'lucide-react';
 import { ipc } from '../../lib/ipc';
 import { useApp } from '../../stores/app';
 import { useTranscript } from '../../stores/transcript';
-import type { SessionMode } from '../../types';
 import { CaptureIndicators } from '../session/CaptureIndicators';
 import { SessionControls } from '../session/SessionControls';
 import { SessionTimer } from '../session/SessionTimer';
 
-const MODES: { mode: SessionMode; title: string; description: string; Icon: typeof Radio }[] = [
-  {
-    mode: 'live',
-    title: 'Live interview',
-    description: 'Transcribes the interview, detects questions and suggests answers from your background.',
-    Icon: Radio,
-  },
-  {
-    mode: 'practice',
-    title: 'Practice',
-    description: 'Velora asks the questions and gives feedback on your answers.',
-    Icon: GraduationCap,
-  },
-];
-
+/** Records and transcribes system audio (e.g. a mock interview call) for review afterwards. */
 export function LiveInterviewPage() {
   const session = useApp((s) => s.session);
   const settings = useApp((s) => s.settings);
   const pending = useApp((s) => s.pending);
   const start = useApp((s) => s.start);
-  const [mode, setMode] = useState<SessionMode>('live');
+  const setPage = useApp((s) => s.setPage);
   const levels = useTranscript((s) => s.levels);
   const inSession = session?.status === 'active' || session?.status === 'paused';
 
   return (
     <div className="flex flex-col gap-6">
       <header>
-        <h1 className="text-xl font-semibold">Live Interview</h1>
+        <h1 className="text-xl font-semibold">Record Session</h1>
         <p className="muted mt-1">
-          Starting a session opens the copilot panel. It stays visible on top of other windows, and you control when
-          capture runs.
+          Transcribes what plays through your speakers, such as a mock interview with a friend or mentor, so you can read
+          it back afterwards under Transcripts. Your microphone is not used. To practise answering, use Practice.
         </p>
       </header>
 
@@ -48,7 +31,7 @@ export function LiveInterviewPage() {
           <div className="flex items-center justify-between">
             <div>
               <div className="font-medium">
-                {session.mode === 'practice' ? 'Practice session' : 'Live session'} ·{' '}
+                {session.mode === 'practice' ? 'Recording a practice answer' : 'Recording'} ·{' '}
                 {session.status === 'paused' ? 'Paused' : 'Active'}
               </div>
               <div className="muted text-sm">
@@ -57,7 +40,7 @@ export function LiveInterviewPage() {
             </div>
             <div className="flex gap-2">
               <button className="btn" onClick={() => ipc.showCopilot()}>
-                <PanelTopOpen size={16} /> Show panel
+                <PanelTopOpen size={16} /> Show transcript panel
               </button>
               <SessionControls />
             </div>
@@ -66,39 +49,19 @@ export function LiveInterviewPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3" role="radiogroup" aria-label="Session type">
-            {MODES.map(({ mode: m, title, description, Icon }) => (
-              <button
-                key={m}
-                role="radio"
-                aria-checked={mode === m}
-                onClick={() => setMode(m)}
-                className={clsx(
-                  'card p-4 text-left transition-colors',
-                  mode === m && 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]'
-                )}
-              >
-                <Icon size={18} className="text-accent mb-2" />
-                <div className="font-medium">{title}</div>
-                <div className="muted mt-1 text-sm">{description}</div>
-              </button>
-            ))}
-          </div>
-
           <div className="card p-4 text-sm">
-            <div className="mb-2 font-medium">What works in this build</div>
             <ul className="muted list-disc space-y-1 pl-5">
-              <li>
-                Live transcription of your microphone and system audio, on this PC. Audio is never saved or uploaded;
-                only the text is kept, in your local history.
-              </li>
-              <li>Question detection, answer suggestions and practice questions are not built yet.</li>
+              <li>Transcription runs on this PC. Audio is never saved or uploaded; only the text is kept, locally.</li>
+              <li>The transcript panel stays on top of other windows and appears in screen shares like any window.</li>
             </ul>
           </div>
 
           <div className="flex items-center gap-3">
-            <button className="btn btn-primary" onClick={() => start(mode)} disabled={pending}>
-              <Radio size={16} /> Start {mode === 'live' ? 'live session' : 'practice'}
+            <button className="btn btn-primary" onClick={() => start('live')} disabled={pending}>
+              <Radio size={16} /> Start recording
+            </button>
+            <button className="btn" onClick={() => setPage('practice')}>
+              Go to Practice
             </button>
             {settings && (
               <span className="muted text-xs">
@@ -110,7 +73,7 @@ export function LiveInterviewPage() {
 
           {session?.status === 'ended' && (
             <p className="muted text-sm">
-              Last session ended after <SessionTimer />.
+              Last recording ended after <SessionTimer />.
             </p>
           )}
         </>

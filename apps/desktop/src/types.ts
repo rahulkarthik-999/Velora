@@ -15,15 +15,13 @@ export interface Settings {
   answerStyle: AnswerStyle;
   shortcuts: ShortcutSettings;
   audio: {
-    captureMicrophone: boolean;
-    captureSystemAudio: boolean;
     /** null = Windows default device */
     microphoneDeviceId: string | null;
     systemAudioDeviceId: string | null;
-    /** Ignore the mic while system audio has speech (laptop speakers). */
-    echoGuard: boolean;
   };
   transcription: { modelId: string };
+  /** Tailors practice questions, feedback and model answers. */
+  customInstructions: string;
   apiBaseUrl: string;
 }
 
@@ -135,3 +133,104 @@ export type PipelineEvent =
   | { kind: 'transcriberFailed'; message: string }
   | { kind: 'sourceFailed'; source: SourceKind; message: string }
   | { kind: 'segmentDropped'; source: SourceKind };
+
+// --- Account (web API via the desktop sign-in) ---
+
+export interface AccountStatus {
+  signedIn: boolean;
+  user?: { name: string | null; email: string | null };
+  device?: { id: string; name: string };
+  usage?: { tier: string; monthlyAICredits: number; creditsUsed: number; creditsRemaining: number; periodStart: string };
+}
+
+export interface LinkStart {
+  userCode: string;
+  verificationUrl: string;
+  interval: number;
+  expiresIn: number;
+}
+
+export type AccountEvent = { status: 'signedIn' | 'signedOut' | 'denied' | 'expired' | 'failed' };
+
+// --- Interview preparation ---
+
+export interface ResumeInfo {
+  id: string;
+  fileName: string;
+  chars: number;
+  importedAtMs: number;
+  preview: string;
+}
+
+export type FactKind = 'skill' | 'experience' | 'project' | 'education' | 'other';
+
+export interface CandidateFact {
+  id: string;
+  kind: FactKind;
+  text: string;
+}
+
+export interface CandidateProfile {
+  headline: string;
+  skills: string[];
+  experiences: { title: string; company: string; period: string; highlights: string[] }[];
+  projects: { name: string; description: string; technologies: string[] }[];
+  education: { qualification: string; institution: string; period: string }[];
+}
+
+export interface ProfileView {
+  profile: CandidateProfile | null;
+  facts: CandidateFact[];
+}
+
+export interface Job {
+  id: string;
+  title: string;
+  company: string;
+  description: string;
+  updatedAtMs: number;
+}
+
+export type PracticeFocus = 'mixed' | 'behavioral' | 'technical' | 'situational';
+export type Difficulty = 'easy' | 'medium' | 'hard';
+
+export interface Feedback {
+  score: number;
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+  modelAnswer: string;
+  talkingPoints: string[];
+  evidenceUsed: string[];
+  followUpQuestion: string;
+}
+
+export interface PracticeItem {
+  id: string;
+  sessionId: string;
+  position: number;
+  question: string;
+  category: string;
+  focus: string;
+  answer: string | null;
+  feedback: Feedback | null;
+  score: number | null;
+}
+
+export interface PracticeSessionSummary {
+  id: string;
+  jobId: string | null;
+  title: string;
+  focus: PracticeFocus;
+  difficulty: Difficulty;
+  createdAtMs: number;
+  itemCount: number;
+  answeredCount: number;
+  averageScore: number | null;
+}
+
+export interface PracticeView {
+  sessionId: string;
+  items: PracticeItem[];
+  creditsRemaining: number | null;
+}

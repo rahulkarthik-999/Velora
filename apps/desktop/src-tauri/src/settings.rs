@@ -11,6 +11,8 @@ use tauri_plugin_global_shortcut::Shortcut;
 use crate::error::{AppError, AppResult};
 
 pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
+/// Matches the server's limit.
+pub const MAX_CUSTOM_INSTRUCTIONS: usize = 1_500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,18 +61,14 @@ impl ShortcutSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AudioSettings {
-    pub capture_microphone: bool,
-    pub capture_system_audio: bool,
     /// None means the Windows default device.
     pub microphone_device_id: Option<String>,
     pub system_audio_device_id: Option<String>,
-    /// Ignore the microphone while system audio has speech (for laptop speakers).
-    pub echo_guard: bool,
 }
 
 impl Default for AudioSettings {
     fn default() -> Self {
-        Self { capture_microphone: true, capture_system_audio: true, microphone_device_id: None, system_audio_device_id: None, echo_guard: true }
+        Self { microphone_device_id: None, system_audio_device_id: None }
     }
 }
 
@@ -95,6 +93,8 @@ pub struct Settings {
     pub shortcuts: ShortcutSettings,
     pub audio: AudioSettings,
     pub transcription: TranscriptionSettings,
+    /// Tailors practice questions, feedback and model answers (tone, length, focus).
+    pub custom_instructions: String,
     pub api_base_url: String,
 }
 
@@ -107,7 +107,8 @@ impl Default for Settings {
             shortcuts: ShortcutSettings::default(),
             audio: AudioSettings::default(),
             transcription: TranscriptionSettings::default(),
-            api_base_url: "https://api.veloraweb.online/api/v1".into(),
+            custom_instructions: String::new(),
+            api_base_url: "https://veloraweb.online".into(),
         }
     }
 }
@@ -135,6 +136,11 @@ impl Settings {
         }
 
         crate::transcription::models::find(&self.transcription.model_id)?;
+        if self.custom_instructions.chars().count() > MAX_CUSTOM_INSTRUCTIONS {
+            return Err(AppError::InvalidSettings(format!(
+                "Custom instructions can be up to {MAX_CUSTOM_INSTRUCTIONS} characters."
+            )));
+        }
 
         let url = self.api_base_url.trim();
         let local = url.starts_with("http://localhost") || url.starts_with("http://127.0.0.1");

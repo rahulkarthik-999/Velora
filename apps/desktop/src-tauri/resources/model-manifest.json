@@ -1,0 +1,44 @@
+{
+  "manifestVersion": 1,
+  "models": [
+    {
+      "id": "small.en-q5_1",
+      "language": "en",
+      "quantization": "q5_1",
+      "fileName": "ggml-small.en-q5_1.bin",
+      "sizeBytes": 190098681,
+      "sha256": "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.en-q5_1.bin",
+      "artifactVersion": "whisper.cpp@5359861c",
+      "minAppVersion": "0.1.0",
+      "runtime": "cpu",
+      "role": "default"
+    },
+    {
+      "id": "base.en-q5_1",
+      "language": "en",
+      "quantization": "q5_1",
+      "fileName": "ggml-base.en-q5_1.bin",
+      "sizeBytes": 59721011,
+      "sha256": "4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en-q5_1.bin",
+      "artifactVersion": "whisper.cpp@5359861c",
+      "minAppVersion": "0.1.0",
+      "runtime": "cpu",
+      "role": "fallback"
+    },
+    {
+      "id": "small.en-q8_0",
+      "language": "en",
+      "quantization": "q8_0",
+      "fileName": "ggml-small.en-q8_0.bin",
+      "sizeBytes": 264477561,
+      "sha256": "67a179f608ea6114bd3fdb9060e762b588a3fb3bd00c4387971be4d177958067",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.en-q8_0.bin",
+      "artifactVersion": "whisper.cpp@5359861c",
+      "minAppVersion": "0.1.0",
+      "runtime": "cpu",
+      "role": "quality"
+    }
+  ]
+}

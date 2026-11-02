@@ -121,6 +121,7 @@ export default function LandingPage() {
             <a href="#templates" className="hover:text-white transition-colors">Deliverable Templates</a>
             <a href="#demo" className="hover:text-white transition-colors">Live Console</a>
             <a href="#pricing" className="hover:text-white transition-colors">Pricing</a>
+            <Link href="/download" className="hover:text-white transition-colors">Desktop App</Link>
           </nav>
 
           <div className="flex items-center gap-3">
@@ -548,6 +549,7 @@ export default function LandingPage() {
             <span>&mdash; Turn client briefs into work you can deliver.</span>
           </div>
           <div className="flex items-center gap-6">
+            <Link href="/download" className="hover:text-white transition-colors">Download for Windows</Link>
             <Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
             <Link href="/terms" className="hover:text-white transition-colors">Terms of Service</Link>
             <Link href="/dashboard" className="hover:text-white transition-colors">Client Workspace</Link>

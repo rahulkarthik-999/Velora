@@ -164,6 +164,21 @@ export function SettingsPage() {
             onChange={(id) => update({ audio: { ...draft.audio, systemAudioDeviceId: id } })}
           />
         </Row>
+        <Row label="Echo guard" hint="For laptop speakers. Turn off if you use headphones.">
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={draft.audio.echoGuard}
+              disabled={!draft.audio.captureMicrophone || !draft.audio.captureSystemAudio}
+              onChange={(e) => update({ audio: { ...draft.audio, echoGuard: e.target.checked } })}
+            />
+            <span>
+              Ignore the microphone while system audio is playing speech, so your mic doesn't pick the other side up from your
+              speakers.
+            </span>
+          </label>
+        </Row>
         {devicesError && <p className="py-2 text-sm text-red-400">{devicesError}</p>}
       </section>
 

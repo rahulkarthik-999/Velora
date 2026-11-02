@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState};
 
 use crate::{
@@ -48,9 +48,17 @@ pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
     let app = app.clone();
     let shortcut = *shortcut;
     std::thread::spawn(move || {
-        // Shortcuts fire with no UI waiting on them, so surface failures in the log.
+        // No UI is waiting on a shortcut, so tell the user on screen why nothing happened.
         if let Err(e) = action(&app) {
             log::info!("Shortcut {shortcut:?} ignored: {e}");
+            let message = match e {
+                // Pause/resume/end only fail this way when no session is running.
+                AppError::InvalidTransition { .. } => {
+                    "No session is running. Start one from the Live Interview page.".to_string()
+                }
+                other => other.to_string(),
+            };
+            let _ = app.emit(commands::APP_NOTICE, message);
         }
     });
 }

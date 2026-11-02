@@ -48,14 +48,23 @@ pub struct TranscribeOptions {
 
 impl Default for TranscribeOptions {
     fn default() -> Self {
-        Self { threads: adaptive_threads(), beam_size: 3, temperature: 0.0, no_speech_threshold: 0.6, initial_prompt: None }
+        // Greedy decoding: beam search (width 3) measured ~2-3x slower on a
+        // 4-core laptop for little accuracy gain on short live segments.
+        Self { threads: adaptive_threads(), beam_size: 1, temperature: 0.0, no_speech_threshold: 0.6, initial_prompt: None }
     }
 }
 
-/// Two threads on small machines, up to four on larger ones.
+/// One thread per physical core (2 to 8). Hyper-threads don't speed up
+/// whisper's matrix work, but real cores do: halving the logical count
+/// left half of a 4-core, 4-thread CPU idle.
 pub fn adaptive_threads() -> i32 {
-    let logical = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2) as i32;
-    (logical / 2).clamp(2, 4)
+    let logical = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
+    threads_for(sysinfo::System::physical_core_count().ok(), logical)
+}
+
+fn threads_for(physical: Option<usize>, logical: usize) -> i32 {
+    let cores = physical.filter(|&p| p > 0).unwrap_or((logical / 2).max(1));
+    cores.clamp(2, 8) as i32
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -210,7 +219,17 @@ mod tests {
 
     #[test]
     fn adaptive_threads_stay_in_range() {
-        assert!((2..=4).contains(&adaptive_threads()));
+        assert!((2..=8).contains(&adaptive_threads()));
+    }
+
+    #[test]
+    fn uses_every_physical_core() {
+        // 4 cores without hyper-threading (the i5-7440HQ case) must get 4 threads, not 2.
+        assert_eq!(threads_for(Some(4), 4), 4);
+        assert_eq!(threads_for(Some(4), 8), 4);
+        assert_eq!(threads_for(Some(16), 32), 8);
+        assert_eq!(threads_for(Some(1), 2), 2);
+        assert_eq!(threads_for(None, 8), 4);
     }
 
     #[test]

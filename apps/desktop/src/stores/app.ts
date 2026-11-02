@@ -20,11 +20,14 @@ interface AppStore {
   sessionReceivedAt: number;
   pending: boolean;
   error: string | null;
+  /** Short-lived message, e.g. why a shortcut did nothing. */
+  notice: string | null;
 
   setPage: (page: Page) => void;
   setSettings: (settings: Settings) => void;
   setSession: (session: SessionSnapshot) => void;
   clearError: () => void;
+  showNotice: (message: string) => void;
   load: () => Promise<void>;
   saveSettings: (settings: Settings) => Promise<boolean>;
   start: (mode: SessionMode) => Promise<void>;
@@ -32,6 +35,9 @@ interface AppStore {
   resume: () => Promise<void>;
   end: () => Promise<void>;
 }
+
+const NOTICE_MS = 5_000;
+let noticeTimer = 0;
 
 export const useApp = create<AppStore>((set, get) => {
   /** Runs a session command; the snapshot comes back from Rust, never assumed. */
@@ -54,11 +60,17 @@ export const useApp = create<AppStore>((set, get) => {
     sessionReceivedAt: 0,
     pending: false,
     error: null,
+    notice: null,
 
     setPage: (page) => set({ page }),
     setSettings: (settings) => set({ settings }),
     setSession: (session) => set({ session, sessionReceivedAt: Date.now() }),
     clearError: () => set({ error: null }),
+    showNotice: (message) => {
+      set({ notice: message });
+      window.clearTimeout(noticeTimer);
+      noticeTimer = window.setTimeout(() => set({ notice: null }), NOTICE_MS);
+    },
 
     load: async () => {
       try {

@@ -20,6 +20,8 @@ export interface Settings {
     /** null = Windows default device */
     microphoneDeviceId: string | null;
     systemAudioDeviceId: string | null;
+    /** Ignore the mic while system audio has speech (laptop speakers). */
+    echoGuard: boolean;
   };
   transcription: { modelId: string };
   apiBaseUrl: string;

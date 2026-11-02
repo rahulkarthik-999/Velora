@@ -82,7 +82,6 @@ impl Segmenter {
         }
     }
 
-    #[cfg(test)]
     pub fn is_in_speech(&self) -> bool {
         self.in_speech
     }

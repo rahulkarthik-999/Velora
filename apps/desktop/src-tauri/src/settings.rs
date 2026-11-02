@@ -64,11 +64,13 @@ pub struct AudioSettings {
     /// None means the Windows default device.
     pub microphone_device_id: Option<String>,
     pub system_audio_device_id: Option<String>,
+    /// Ignore the microphone while system audio has speech (for laptop speakers).
+    pub echo_guard: bool,
 }
 
 impl Default for AudioSettings {
     fn default() -> Self {
-        Self { capture_microphone: true, capture_system_audio: true, microphone_device_id: None, system_audio_device_id: None }
+        Self { capture_microphone: true, capture_system_audio: true, microphone_device_id: None, system_audio_device_id: None, echo_guard: true }
     }
 }
 

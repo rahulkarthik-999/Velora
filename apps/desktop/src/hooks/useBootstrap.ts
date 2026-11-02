@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ipc, onPipelineEvent, onSessionChanged, onSettingsChanged } from '../lib/ipc';
+import { ipc, onAppNotice, onPipelineEvent, onSessionChanged, onSettingsChanged } from '../lib/ipc';
 import { useApp } from '../stores/app';
 import { useTranscript } from '../stores/transcript';
 import type { Theme } from '../types';
@@ -10,11 +10,12 @@ export function useBootstrap() {
   const sessionId = useApp((s) => s.session?.id ?? null);
 
   useEffect(() => {
-    const { load, setSession, setSettings } = useApp.getState();
+    const { load, setSession, setSettings, showNotice } = useApp.getState();
     load();
     const unlisten = [
       onSessionChanged(setSession),
       onSettingsChanged(setSettings),
+      onAppNotice(showNotice),
       onPipelineEvent((event) => {
         useTranscript.getState().handle(event);
         // A device dropping out changes the capture indicators.

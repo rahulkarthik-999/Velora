@@ -4,6 +4,7 @@ import type {
   AudioDevices,
   InstallEvent,
   ModelsOverview,
+  ModelStatus,
   PipelineEvent,
   SessionMode,
   SessionRecord,
@@ -32,6 +33,7 @@ export const ipc = {
   getModels: () => call<ModelsOverview>('get_models'),
   installModel: (modelId: string) => call<void>('install_model', { modelId }),
   cancelModelInstall: () => call<void>('cancel_model_install'),
+  benchmarkModel: (modelId: string) => call<ModelStatus>('benchmark_model', { modelId }),
   getSession: () => call<SessionSnapshot>('get_session'),
   startSession: (mode: SessionMode) => call<SessionSnapshot>('start_session', { mode }),
   pauseSession: () => call<SessionSnapshot>('pause_session'),
@@ -57,6 +59,10 @@ export function onSettingsChanged(cb: (s: Settings) => void): Promise<UnlistenFn
 
 export function onPipelineEvent(cb: (e: PipelineEvent) => void): Promise<UnlistenFn> {
   return listen<PipelineEvent>('pipeline-event', (e) => cb(e.payload));
+}
+
+export function onAppNotice(cb: (message: string) => void): Promise<UnlistenFn> {
+  return listen<string>('app-notice', (e) => cb(e.payload));
 }
 
 export function onModelInstall(cb: (e: InstallEvent) => void): Promise<UnlistenFn> {

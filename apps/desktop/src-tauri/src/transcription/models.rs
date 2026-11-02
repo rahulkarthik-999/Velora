@@ -62,7 +62,14 @@ struct VerifiedMarker {
     sha256: String,
     self_test_transcript: String,
     self_test_rtf: f32,
+    /// Which decoding settings measured `self_test_rtf`. Older markers (0) were
+    /// measured with slower settings, so their speed figure is discarded.
+    #[serde(default)]
+    bench_version: u32,
 }
+
+/// Bump when TranscribeOptions defaults change in a way that affects speed.
+const BENCH_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,7 +105,11 @@ pub fn statuses(dir: &Path) -> Vec<ModelStatus> {
         .into_iter()
         .map(|spec| {
             let marker = read_marker(dir, &spec);
-            ModelStatus { installed: marker.is_some(), self_test_rtf: marker.map(|m| m.self_test_rtf), spec }
+            ModelStatus {
+                installed: marker.is_some(),
+                self_test_rtf: marker.filter(|m| m.bench_version == BENCH_VERSION).map(|m| m.self_test_rtf),
+                spec,
+            }
         })
         .collect()
 }
@@ -106,24 +117,65 @@ pub fn statuses(dir: &Path) -> Vec<ModelStatus> {
 /// Below this much free RAM, prefer the smaller fallback model.
 pub const LOW_MEMORY_MB: u64 = 1_500;
 
-/// Picks the model to load for a session. Returns the model and, when it
-/// differs from the user's choice, a message explaining why.
-pub fn select(installed: &[ModelSpec], preferred_id: &str, available_memory_mb: u64) -> AppResult<(ModelSpec, Option<String>)> {
-    let fallback = installed.iter().find(|m| m.role == "fallback");
-    match installed.iter().find(|m| m.id == preferred_id) {
-        Some(preferred) if available_memory_mb < LOW_MEMORY_MB && preferred.role != "fallback" => match fallback {
-            Some(f) => Ok((
-                f.clone(),
-                Some(format!("Only {available_memory_mb} MB of memory is free, so the lighter {} model is used.", f.id)),
-            )),
-            None => Ok((preferred.clone(), None)),
-        },
-        Some(preferred) => Ok((preferred.clone(), None)),
-        None => installed
+/// Above this real-time factor a model can't keep up with live speech
+/// (it needs headroom for back-to-back sentences and two audio sources).
+pub const SLOW_RTF: f32 = 0.8;
+
+/// Picks the model to load for a session from the installed ones (with their
+/// measured speed). Returns the model and, when it differs from the user's
+/// choice, a message explaining why.
+pub fn select(installed: &[ModelStatus], preferred_id: &str, available_memory_mb: u64) -> AppResult<(ModelSpec, Option<String>)> {
+    let fallback = installed.iter().find(|m| m.spec.role == "fallback");
+    let Some(preferred) = installed.iter().find(|m| m.spec.id == preferred_id) else {
+        return installed
             .first()
-            .map(|m| (m.clone(), Some(format!("{preferred_id} isn't downloaded, so {} is used.", m.id))))
-            .ok_or_else(|| AppError::InvalidSettings("Download a speech model on the Overview page before starting.".into())),
+            .map(|m| (m.spec.clone(), Some(format!("{preferred_id} isn't downloaded, so {} is used.", m.spec.id))))
+            .ok_or_else(|| AppError::InvalidSettings("Download a speech model on the Overview page before starting.".into()));
+    };
+    if preferred.spec.role == "fallback" {
+        return Ok((preferred.spec.clone(), None));
     }
+
+    let low_memory = available_memory_mb < LOW_MEMORY_MB;
+    let too_slow = preferred.self_test_rtf.is_some_and(|rtf| rtf > SLOW_RTF);
+    let reason = if low_memory {
+        format!("Only {available_memory_mb} MB of memory is free")
+    } else if too_slow {
+        format!(
+            "{} runs at {:.2}x real time on this PC, too slow for live speech",
+            preferred.spec.id,
+            preferred.self_test_rtf.unwrap_or_default()
+        )
+    } else {
+        return Ok((preferred.spec.clone(), None));
+    };
+
+    match fallback {
+        Some(f) => Ok((f.spec.clone(), Some(format!("{reason}, so the faster {} model is used.", f.spec.id)))),
+        None => Ok((
+            preferred.spec.clone(),
+            Some(format!("{reason}. Download base.en on the Overview page for faster transcripts.")),
+        )),
+    }
+}
+
+/// Re-runs the self-test with the current decoding settings and records the speed.
+pub fn retest(dir: &Path, spec: &ModelSpec) -> AppResult<ModelStatus> {
+    let path = installed_path(dir, spec).ok_or_else(|| AppError::Internal(format!("{} isn't installed", spec.id)))?;
+    let (transcript, rtf) = self_test(&path)?;
+    write_marker(dir, spec, transcript, rtf)?;
+    Ok(ModelStatus { spec: spec.clone(), installed: true, self_test_rtf: Some(rtf) })
+}
+
+fn write_marker(dir: &Path, spec: &ModelSpec, transcript: String, rtf: f32) -> AppResult<()> {
+    let marker = VerifiedMarker {
+        sha256: spec.sha256.clone(),
+        self_test_transcript: transcript,
+        self_test_rtf: rtf,
+        bench_version: BENCH_VERSION,
+    };
+    fs::write(marker_path(dir, spec), serde_json::to_vec_pretty(&marker)?)?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -183,8 +235,7 @@ pub fn install(
     progress(InstallProgress::SelfTest);
     match self_test(&model_path(dir, spec)) {
         Ok((transcript, rtf)) => {
-            let marker = VerifiedMarker { sha256: spec.sha256.clone(), self_test_transcript: transcript, self_test_rtf: rtf };
-            fs::write(marker_path(dir, spec), serde_json::to_vec_pretty(&marker)?)?;
+            write_marker(dir, spec, transcript, rtf)?;
             log::info!("Model {} installed; self-test RTF {rtf:.2}", spec.id);
             Ok(ModelStatus { spec: spec.clone(), installed: true, self_test_rtf: Some(rtf) })
         }
@@ -294,13 +345,13 @@ mod tests {
         }
     }
 
-    fn named(id: &str, role: &str) -> ModelSpec {
-        ModelSpec { id: id.into(), role: role.into(), ..spec_for(b"x") }
+    fn status(id: &str, role: &str, rtf: Option<f32>) -> ModelStatus {
+        ModelStatus { spec: ModelSpec { id: id.into(), role: role.into(), ..spec_for(b"x") }, installed: true, self_test_rtf: rtf }
     }
 
     #[test]
-    fn select_prefers_users_choice() {
-        let installed = [named("small", "default"), named("base", "fallback")];
+    fn select_prefers_users_choice_when_fast_enough() {
+        let installed = [status("small", "default", Some(0.5)), status("base", "fallback", Some(0.2))];
         let (m, note) = select(&installed, "small", 8_000).unwrap();
         assert_eq!(m.id, "small");
         assert!(note.is_none());
@@ -308,15 +359,31 @@ mod tests {
 
     #[test]
     fn select_falls_back_under_memory_pressure() {
-        let installed = [named("small", "default"), named("base", "fallback")];
+        let installed = [status("small", "default", Some(0.5)), status("base", "fallback", None)];
         let (m, note) = select(&installed, "small", 900).unwrap();
         assert_eq!(m.id, "base");
         assert!(note.unwrap().contains("900 MB"));
     }
 
     #[test]
+    fn select_falls_back_when_measured_too_slow() {
+        // The i5-7440HQ case: small.en measured 0.88x real time.
+        let installed = [status("small", "default", Some(0.88)), status("base", "fallback", Some(0.21))];
+        let (m, note) = select(&installed, "small", 8_000).unwrap();
+        assert_eq!(m.id, "base");
+        assert!(note.unwrap().contains("0.88x"));
+    }
+
+    #[test]
+    fn select_keeps_slow_model_but_says_so_when_no_fallback() {
+        let (m, note) = select(&[status("small", "default", Some(1.4))], "small", 8_000).unwrap();
+        assert_eq!(m.id, "small");
+        assert!(note.unwrap().contains("Download base.en"));
+    }
+
+    #[test]
     fn select_uses_any_installed_model_when_choice_missing() {
-        let (m, note) = select(&[named("base", "fallback")], "small", 8_000).unwrap();
+        let (m, note) = select(&[status("base", "fallback", None)], "small", 8_000).unwrap();
         assert_eq!(m.id, "base");
         assert!(note.is_some());
     }
@@ -324,6 +391,19 @@ mod tests {
     #[test]
     fn select_errors_when_nothing_installed() {
         assert!(select(&[], "small", 8_000).is_err());
+    }
+
+    #[test]
+    fn speed_from_old_decoder_settings_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = spec_for(b"abc");
+        fs::write(dir.path().join(&spec.file_name), b"abc").unwrap();
+        // A marker written before bench_version existed.
+        let old = format!(r#"{{"sha256":"{}","selfTestTranscript":"","selfTestRtf":1.38}}"#, spec.sha256);
+        fs::write(marker_path(dir.path(), &spec), old).unwrap();
+        let s = read_marker(dir.path(), &spec).map(|m| m.bench_version);
+        assert_eq!(s, Some(0));
+        assert!(installed_path(dir.path(), &spec).is_some(), "still installed");
     }
 
     #[test]
@@ -362,7 +442,12 @@ mod tests {
         fs::write(dir.path().join(&spec.file_name), data).unwrap();
         assert!(installed_path(dir.path(), &spec).is_none());
 
-        let marker = VerifiedMarker { sha256: spec.sha256.clone(), self_test_transcript: String::new(), self_test_rtf: 0.5 };
+        let marker = VerifiedMarker {
+            sha256: spec.sha256.clone(),
+            self_test_transcript: String::new(),
+            self_test_rtf: 0.5,
+            bench_version: BENCH_VERSION,
+        };
         fs::write(marker_path(dir.path(), &spec), serde_json::to_vec(&marker).unwrap()).unwrap();
         assert!(installed_path(dir.path(), &spec).is_some());
 

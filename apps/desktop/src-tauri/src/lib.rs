@@ -100,6 +100,7 @@ pub fn run() {
             commands::get_models,
             commands::install_model,
             commands::cancel_model_install,
+            commands::benchmark_model,
             commands::get_session,
             commands::start_session,
             commands::pause_session,

@@ -24,6 +24,8 @@ pub const SESSION_CHANGED: &str = "session-changed";
 pub const SETTINGS_CHANGED: &str = "settings-changed";
 pub const PIPELINE_EVENT: &str = "pipeline-event";
 pub const MODEL_INSTALL: &str = "model-install";
+/// A short message for the user, shown as a toast in every window.
+pub const APP_NOTICE: &str = "app-notice";
 
 const MAX_SEGMENT_TEXT: usize = 2_000;
 
@@ -135,6 +137,21 @@ pub fn install_model(app: AppHandle, state: State<'_, AppState>, model_id: Strin
     Ok(())
 }
 
+/// Re-measures a model's speed on this PC with the current decoding settings.
+#[tauri::command]
+pub async fn benchmark_model(app: AppHandle, model_id: String) -> AppResult<ModelStatus> {
+    let spec = models::find(&model_id)?;
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let busy = state.pipeline.lock().expect("pipeline lock poisoned").is_some();
+        if busy {
+            return Err(AppError::Internal("End the session before testing speed; it would slow both down.".into()));
+        }
+        models::retest(&state.models_dir, &spec)
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn cancel_model_install(state: State<'_, AppState>) {
     if let Some((_, cancel)) = state.installing.lock().expect("lock").as_ref() {
@@ -210,7 +227,7 @@ pub fn session_start(app: &AppHandle, mode: SessionMode) -> AppResult<SessionSna
     let mut session = state.session.lock().expect("session lock poisoned");
     let settings = state.settings.get();
 
-    let installed: Vec<_> = models::statuses(&state.models_dir).into_iter().filter(|m| m.installed).map(|m| m.spec).collect();
+    let installed: Vec<_> = models::statuses(&state.models_dir).into_iter().filter(|m| m.installed).collect();
     let available_mb = system::collect("").map(|s| s.available_memory_mb).unwrap_or(u64::MAX);
     let (model, notice) = models::select(&installed, &settings.transcription.model_id, available_mb)?;
     if let Some(n) = &notice {
@@ -239,6 +256,7 @@ pub fn session_start(app: &AppHandle, mode: SessionMode) -> AppResult<SessionSna
         model_path,
         vad: Default::default(),
         transcribe: TranscribeOptions::default(),
+        echo_guard: settings.audio.echo_guard,
     };
     match Pipeline::start(cfg, state.db.clone(), pipeline_emitter(app), 0) {
         Ok(p) => *state.pipeline.lock().expect("pipeline lock poisoned") = Some(p),

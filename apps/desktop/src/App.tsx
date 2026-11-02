@@ -3,6 +3,7 @@ import { isTauri } from './lib/ipc';
 import { useBootstrap } from './hooks/useBootstrap';
 import { MainShell } from './components/layout/MainShell';
 import { CopilotWindow } from './components/overlay/CopilotWindow';
+import { Toast } from './components/layout/Toast';
 
 export function App() {
   useBootstrap();
@@ -15,5 +16,10 @@ export function App() {
     );
   }
 
-  return getCurrentWindow().label === 'copilot' ? <CopilotWindow /> : <MainShell />;
+  return (
+    <>
+      {getCurrentWindow().label === 'copilot' ? <CopilotWindow /> : <MainShell />}
+      <Toast />
+    </>
+  );
 }

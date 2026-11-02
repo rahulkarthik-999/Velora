@@ -3,6 +3,9 @@ import { CheckCircle2, Download, Loader2, X } from 'lucide-react';
 import { ipc, onModelInstall } from '../../lib/ipc';
 import type { InstallProgress, ModelsOverview, ModelStatus } from '../../types';
 
+/** Mirrors models::SLOW_RTF in Rust. */
+const SLOW_RTF = 0.8;
+
 const ROLE_TEXT: Record<ModelStatus['spec']['role'], string> = {
   default: 'Recommended. Best balance of accuracy and speed.',
   fallback: 'Lighter and faster. Used automatically when memory is low.',
@@ -50,6 +53,20 @@ export function ModelSetup() {
       refresh();
     } catch (e) {
       setError((e as Error).message);
+    }
+  };
+
+  const [testing, setTesting] = useState<string | null>(null);
+  const retest = async (id: string) => {
+    setError(null);
+    setTesting(id);
+    try {
+      await ipc.benchmarkModel(id);
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setTesting(null);
     }
   };
 
@@ -106,14 +123,27 @@ export function ModelSetup() {
                 )}
               </div>
               {m.installed ? (
-                <span className="flex items-center gap-1.5 text-sm text-emerald-500">
-                  <CheckCircle2 size={15} /> Ready
-                  {m.selfTestRtf !== null && (
-                    <span className="muted text-xs" title="Processing time ÷ audio length, measured on this PC">
-                      ({m.selfTestRtf.toFixed(2)}× real time)
-                    </span>
+                <div className="flex flex-col items-end gap-1 text-right">
+                  <span className="flex items-center gap-1.5 text-sm text-emerald-500">
+                    <CheckCircle2 size={15} /> Ready
+                    {m.selfTestRtf !== null && (
+                      <span className="muted text-xs" title="Processing time ÷ audio length, measured on this PC">
+                        ({m.selfTestRtf.toFixed(2)}× real time)
+                      </span>
+                    )}
+                  </span>
+                  {m.selfTestRtf === null ? (
+                    <span className="text-xs text-amber-500">Speed not measured with current settings</span>
+                  ) : (
+                    m.selfTestRtf > SLOW_RTF && (
+                      <span className="text-xs text-amber-500">Too slow for live speech on this PC; base.en is used when downloaded</span>
+                    )
                   )}
-                </span>
+                  <button className="btn py-1 text-xs" disabled={!!testing || !!busy} onClick={() => retest(m.spec.id)}>
+                    {testing === m.spec.id ? <Loader2 size={12} className="animate-spin" /> : null}
+                    {testing === m.spec.id ? 'Testing…' : 'Test speed'}
+                  </button>
+                </div>
               ) : installingThis ? (
                 <button className="btn" onClick={() => ipc.cancelModelInstall()}>
                   {progress?.progress.stage === 'downloading' ? <X size={14} /> : <Loader2 size={14} className="animate-spin" />}

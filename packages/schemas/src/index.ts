@@ -144,12 +144,23 @@ export const TaskSchema = z.object({
 });
 export type Task = z.infer<typeof TaskSchema>;
 
+export const DeliverableTemplateKey = z.enum([
+  'CLIENT_PROPOSAL',
+  'STATEMENT_OF_WORK',
+  'CAMPAIGN_BRIEF',
+  'CLIENT_REPORT',
+  'MEETING_SUMMARY',
+  'STANDARD_OPERATING_PROCEDURE',
+]);
+export type DeliverableTemplateKey = z.infer<typeof DeliverableTemplateKey>;
+
 // ============================================================================
 // Create/Update DTOs
 // ============================================================================
 
 export const CreateTaskInputSchema = z.object({
   goal: z.string().min(1, 'Please describe what you want to accomplish').max(10000),
+  templateKey: DeliverableTemplateKey.optional(),
   deadline: z.string().datetime().optional(),
   priority: TaskPriority.default('MEDIUM'),
   attachmentIds: z.array(z.string().uuid()).default([]),
@@ -385,3 +396,77 @@ export const AnalyticsEventSchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type AnalyticsEvent = z.infer<typeof AnalyticsEventSchema>;
+
+// ============================================================================
+// Deliverable Templates (Client Deliverable Platform)
+// ============================================================================
+
+// DeliverableTemplateKey is declared near the top: CreateTaskInputSchema depends on it.
+
+export interface DeliverableTemplateDefinition {
+  key: DeliverableTemplateKey;
+  title: string;
+  category: string;
+  tagline: string;
+  description: string;
+  sampleBrief: string;
+  expectedDeliverables: string[];
+}
+
+export const DELIVERABLE_TEMPLATES: Record<DeliverableTemplateKey, DeliverableTemplateDefinition> = {
+  CLIENT_PROPOSAL: {
+    key: 'CLIENT_PROPOSAL',
+    title: 'Client Proposal',
+    category: 'Sales & Growth',
+    tagline: 'Win client trust with tailored executive proposals',
+    description: 'Decomposes client briefs into project context, proposed solution, timeline, investment brackets, and terms.',
+    sampleBrief: 'Draft a competitive proposal for redesigning Acme Corp’s multi-brand e-commerce experience across web and mobile.',
+    expectedDeliverables: ['Executive Summary', 'Scope & Solution Architecture', 'Commercial Investment Matrix'],
+  },
+  STATEMENT_OF_WORK: {
+    key: 'STATEMENT_OF_WORK',
+    title: 'Statement of Work (SOW)',
+    category: 'Operations',
+    tagline: 'Eliminate scope creep with concrete milestones',
+    description: 'Turns agreed engagements into contractual scopes, milestones, deliverables, assumptions, and change management protocols.',
+    sampleBrief: 'Generate a 12-week Statement of Work for migrating on-premise infrastructure to AWS with zero downtime.',
+    expectedDeliverables: ['Work Breakdown Structure', 'Milestone Schedule', 'Acceptance Criteria & Assumptions'],
+  },
+  CAMPAIGN_BRIEF: {
+    key: 'CAMPAIGN_BRIEF',
+    title: 'Campaign Brief',
+    category: 'Marketing & Creative',
+    tagline: 'Turn raw notes into creative direction that ships',
+    description: 'Synthesizes market data, target personas, messaging pillars, creative deliverables, and distribution channels.',
+    sampleBrief: 'Create a Q4 multi-channel product launch brief for our privacy-first enterprise AI analytics suite.',
+    expectedDeliverables: ['Audience Persona Breakdown', 'Core Messaging Pillars', 'Asset Deliverables Checklist'],
+  },
+  CLIENT_REPORT: {
+    key: 'CLIENT_REPORT',
+    title: 'Client Performance Report',
+    category: 'Account Management',
+    tagline: 'Turn spreadsheets and KPIs into polished client reviews',
+    description: 'Transforms metrics, spend, and monthly milestones into an executive narrative with insights and recommendations.',
+    sampleBrief: 'Synthesize monthly performance figures into a client review highlighting ROAS growth and next-quarter priorities.',
+    expectedDeliverables: ['Executive Performance Summary', 'KPI Attribution Table', 'Actionable Recommendations'],
+  },
+  MEETING_SUMMARY: {
+    key: 'MEETING_SUMMARY',
+    title: 'Meeting Summary & Action Plan',
+    category: 'Productivity',
+    tagline: 'Turn client conversations into accountability',
+    description: 'Extracts critical decisions, owners, timeline commitments, and immediate next steps from transcripts or rough notes.',
+    sampleBrief: 'Distill this 45-minute project steering committee transcript into key decisions and assigned action items.',
+    expectedDeliverables: ['Decisions Log', 'Action Item Table with Owners', 'Client Follow-up Email'],
+  },
+  STANDARD_OPERATING_PROCEDURE: {
+    key: 'STANDARD_OPERATING_PROCEDURE',
+    title: 'Standard Operating Procedure (SOP)',
+    category: 'Governance',
+    tagline: 'Codify institutional workflows into repeatable playbooks',
+    description: 'Documents step-by-step processes, inputs, escalation triggers, tool access requirements, and quality checks.',
+    sampleBrief: 'Document our agency client onboarding procedure from signed agreement through kickoff call.',
+    expectedDeliverables: ['Process Flowchart Narrative', 'Step-by-Step Execution Guide', 'Quality Assurance Checklist'],
+  },
+};
+

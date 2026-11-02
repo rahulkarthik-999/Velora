@@ -20,12 +20,14 @@ Respond ONLY with valid JSON matching the specified schema.`;
 export async function generateWorkflow(
   goal: string,
   context?: string,
-  attachmentInfo?: string
+  attachmentInfo?: string,
+  templateContext?: string
 ): Promise<{ workflow: AIWorkflowResponse; usage: { inputTokens: number; outputTokens: number; model: string } }> {
   const provider = getAIProvider();
 
   const userMessage = [
     `USER GOAL: ${goal}`,
+    templateContext ? `DELIVERABLE BLUEPRINT & REQUIREMENTS:\n${templateContext}` : '',
     context ? `ADDITIONAL CONTEXT: ${context}` : '',
     attachmentInfo ? `ATTACHED FILES: ${attachmentInfo}` : '',
   ]

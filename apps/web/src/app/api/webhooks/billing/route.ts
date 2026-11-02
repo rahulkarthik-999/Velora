@@ -2,36 +2,45 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import crypto from 'crypto';
 
-// POST /api/webhooks/billing — Handle billing webhooks
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.text();
-    const signature = req.headers.get('x-webhook-signature') || req.headers.get('webhook-signature') || '';
+    const signature =
+      req.headers.get('x-webhook-signature') ||
+      req.headers.get('webhook-signature') ||
+      '';
     const webhookSecret = process.env.DODO_WEBHOOK_SECRET;
 
     if (!webhookSecret) {
-      console.error('[Webhook] DODO_WEBHOOK_SECRET not configured');
+      console.error('[Billing Webhook] DODO_WEBHOOK_SECRET not configured');
       return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 });
     }
 
-    // Verify signature
+    if (!signature) {
+      return NextResponse.json({ error: 'Missing webhook signature' }, { status: 401 });
+    }
+
+    // Verify HMAC-SHA256 signature
     const expectedSignature = crypto
       .createHmac('sha256', webhookSecret)
       .update(body)
       .digest('hex');
 
-    if (!crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    )) {
-      console.warn('[Webhook] Invalid signature');
+    const sigBuf = Buffer.from(signature);
+    const expBuf = Buffer.from(expectedSignature);
+
+    // Guard against timingSafeEqual throw on length mismatch
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      console.warn('[Billing Webhook] Signature verification failed');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
     const event = JSON.parse(body);
-
-    // Idempotency check
     const eventId = event.id || event.event_id;
+
+    // Idempotency check: duplicate event rejection
     if (eventId) {
       const existing = await prisma.subscriptionEvent.findUnique({
         where: { externalEventId: eventId },
@@ -41,7 +50,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Process event
     const eventType = event.type || event.event_type;
 
     switch (eventType) {
@@ -50,36 +58,49 @@ export async function POST(req: NextRequest) {
         const customerId = event.data?.customer_id || event.customer_id;
         const subscriptionId = event.data?.subscription_id || event.subscription_id;
         const productId = event.data?.product_id || event.product_id;
+        const metadataUserId = event.data?.metadata?.userId || event.metadata?.userId;
 
         const tier = getProductTier(productId);
+        if (!tier) {
+          console.warn(`[Billing Webhook] Unknown or invalid product ID: ${productId}. No tier granted.`);
+          return NextResponse.json({ error: 'Unrecognized product ID' }, { status: 400 });
+        }
 
-        if (customerId) {
-          const sub = await prisma.subscription.findFirst({
-            where: { externalCustomerId: customerId },
-          });
+        // Find subscription by customer ID or user ID
+        const sub = await prisma.subscription.findFirst({
+          where: {
+            OR: [
+              ...(customerId ? [{ externalCustomerId: customerId }] : []),
+              ...(metadataUserId ? [{ userId: metadataUserId }] : []),
+            ],
+          },
+        });
 
-          if (sub) {
-            await prisma.subscription.update({
+        if (sub) {
+          await prisma.$transaction([
+            prisma.subscription.update({
               where: { id: sub.id },
               data: {
                 tier,
                 status: 'ACTIVE',
-                externalId: subscriptionId,
+                externalId: subscriptionId || sub.externalId,
+                externalCustomerId: customerId || sub.externalCustomerId,
                 currentPeriodStart: new Date(),
               },
-            });
-
-            if (eventId) {
-              await prisma.subscriptionEvent.create({
-                data: {
-                  subscriptionId: sub.id,
-                  externalEventId: eventId,
-                  type: eventType,
-                  payload: event,
-                },
-              });
-            }
-          }
+            }),
+            ...(eventId
+              ? [
+                  prisma.subscriptionEvent.create({
+                    data: {
+                      subscriptionId: sub.id,
+                      externalEventId: eventId,
+                      type: eventType,
+                      payload: event,
+                    },
+                  }),
+                ]
+              : []),
+          ]);
         }
         break;
       }
@@ -91,26 +112,30 @@ export async function POST(req: NextRequest) {
           const sub = await prisma.subscription.findFirst({
             where: { externalId: subscriptionId },
           });
-          if (sub) {
-            await prisma.subscription.update({
-              where: { id: sub.id },
-              data: {
-                tier: 'FREE',
-                status: eventType === 'subscription.cancelled' ? 'CANCELLED' : 'EXPIRED',
-                cancelledAt: new Date(),
-              },
-            });
 
-            if (eventId) {
-              await prisma.subscriptionEvent.create({
+          if (sub) {
+            await prisma.$transaction([
+              prisma.subscription.update({
+                where: { id: sub.id },
                 data: {
-                  subscriptionId: sub.id,
-                  externalEventId: eventId,
-                  type: eventType,
-                  payload: event,
+                  tier: 'FREE',
+                  status: eventType === 'subscription.cancelled' ? 'CANCELLED' : 'EXPIRED',
+                  cancelledAt: new Date(),
                 },
-              });
-            }
+              }),
+              ...(eventId
+                ? [
+                    prisma.subscriptionEvent.create({
+                      data: {
+                        subscriptionId: sub.id,
+                        externalEventId: eventId,
+                        type: eventType,
+                        payload: event,
+                      },
+                    }),
+                  ]
+                : []),
+            ]);
           }
         }
         break;
@@ -133,19 +158,23 @@ export async function POST(req: NextRequest) {
       }
 
       default:
-        console.log(`[Webhook] Unhandled event type: ${eventType}`);
+        console.log(`[Billing Webhook] Handled informational event: ${eventType}`);
     }
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error('[Webhook Error]', error);
-    return NextResponse.json({ error: 'Webhook processing failed' }, { status: 500 });
+    console.error('[Billing Webhook Exception]', error);
+    return NextResponse.json({ error: 'Webhook processing error' }, { status: 500 });
   }
 }
 
-function getProductTier(productId: string | undefined): 'FREE' | 'PLUS' | 'PRO' {
-  if (!productId) return 'FREE';
-  if (productId === process.env.DODO_PRODUCT_PLUS) return 'PLUS';
-  if (productId === process.env.DODO_PRODUCT_PRO) return 'PRO';
-  return 'PLUS'; // Default to PLUS for unknown products
+/**
+ * Strict product ID mapping.
+ * Never grant a tier to an unknown or missing product ID.
+ */
+function getProductTier(productId: string | undefined): 'PLUS' | 'PRO' | null {
+  if (!productId) return null;
+  if (process.env.DODO_PRODUCT_PLUS && productId === process.env.DODO_PRODUCT_PLUS) return 'PLUS';
+  if (process.env.DODO_PRODUCT_PRO && productId === process.env.DODO_PRODUCT_PRO) return 'PRO';
+  return null;
 }

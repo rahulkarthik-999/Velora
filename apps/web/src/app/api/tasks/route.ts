@@ -90,7 +90,16 @@ export async function POST(req: NextRequest) {
       return badRequest(parsed.error.issues.map(i => i.message).join(', '));
     }
 
-    const { goal, deadline, priority, attachmentIds } = parsed.data;
+    const { goal, templateKey, deadline, priority, attachmentIds } = parsed.data;
+
+    let templateContext: string | undefined;
+    if (templateKey) {
+      const { DELIVERABLE_TEMPLATES } = await import('@velora/schemas');
+      const tpl = DELIVERABLE_TEMPLATES[templateKey];
+      if (tpl) {
+        templateContext = `DELIVERABLE TYPE: ${tpl.title} (${tpl.category})\nPURPOSE: ${tpl.description}\nTARGET DELIVERABLES REQUIRED: ${tpl.expectedDeliverables.join(', ')}`;
+      }
+    }
 
     // Check active task limits
     const sub = await prisma.subscription.findUnique({ where: { userId: user.id } });
@@ -153,7 +162,7 @@ export async function POST(req: NextRequest) {
 
     // Generate workflow using AI
     try {
-      const { workflow, usage } = await generateWorkflow(goal, undefined, attachmentInfo);
+      const { workflow, usage } = await generateWorkflow(goal, undefined, attachmentInfo, templateContext);
 
       // Check if clarification is needed
       if (workflow.clarificationNeeded && workflow.clarificationQuestion) {

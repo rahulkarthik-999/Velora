@@ -65,6 +65,7 @@ model User {
   profile       UserProfile?
   tasks         Task[]
   attachments   TaskAttachment[]
+  storedFiles   StoredFile[]
   artifacts     TaskArtifact[]
   usageLedger   UsageLedger[]
   subscription  Subscription?
@@ -190,6 +191,21 @@ model TaskAttachment {
   user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
+  @@index([userId])
+}
+
+// Uploaded file contents, stored in Postgres (works on Neon and Supabase).
+// Kept apart from TaskAttachment so listing attachments never loads file bytes.
+model StoredFile {
+  key       String   @id
+  userId    String
+  mimeType  String   @db.VarChar(100)
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
 }
 

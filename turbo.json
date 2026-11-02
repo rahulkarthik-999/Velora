@@ -3,7 +3,24 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "env": [
+        "DATABASE_URL",
+        "NEXTAUTH_URL",
+        "NEXTAUTH_SECRET",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "AI_PROVIDER",
+        "AI_BASE_URL",
+        "AI_API_KEY",
+        "AI_MODEL",
+        "AI_FALLBACK_MODEL",
+        "DODO_API_KEY",
+        "DODO_WEBHOOK_SECRET",
+        "DODO_PRODUCT_PLUS",
+        "DODO_PRODUCT_PRO",
+        "APP_URL"
+      ]
     },
     "dev": {
       "cache": false,

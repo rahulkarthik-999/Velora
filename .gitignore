@@ -49,3 +49,14 @@ prisma/*.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+
+# Vercel
+.vercel/
+
+# Tauri desktop build output
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# Pinned third-party source fetched by scripts/fetch-whisper.ps1
+apps/desktop/src-tauri/third_party/

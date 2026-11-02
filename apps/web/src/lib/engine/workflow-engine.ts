@@ -61,15 +61,22 @@ export class WorkflowEngine {
       );
     }
 
-    // 5. Update step to RUNNING
-    await prisma.workflowStep.update({
-      where: { id: stepId },
+    // 5. Update step to RUNNING atomically to prevent concurrent race conditions
+    const updateResult = await prisma.workflowStep.updateMany({
+      where: {
+        id: stepId,
+        status: { in: ['READY', 'FAILED', 'PENDING'] },
+      },
       data: {
         status: 'RUNNING',
         startedAt: new Date(),
         retryCount: step.status === 'FAILED' ? step.retryCount + 1 : step.retryCount,
       },
     });
+
+    if (updateResult.count === 0) {
+      throw new EngineError('Step is already executing or not in a runnable state', 409);
+    }
 
     // Ensure task is IN_PROGRESS
     if (step.task.status !== 'IN_PROGRESS') {

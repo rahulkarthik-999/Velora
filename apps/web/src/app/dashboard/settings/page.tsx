@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Loader2,
 } from 'lucide-react';
+import { DevicesCard } from '@/components/desktop/DevicesCard';
 
 export default function SettingsPage() {
   const { data: session } = useSession();
@@ -83,6 +84,8 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      <DevicesCard />
 
       {/* Subscription & Entitlements */}
       <div className="card p-6 space-y-6">

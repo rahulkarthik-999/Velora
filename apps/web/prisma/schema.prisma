@@ -71,8 +71,43 @@ model User {
   subscription  Subscription?
   preferences   UserPreference[]
   analyticsEvents AnalyticsEvent[]
+  devices       Device[]
 
   @@index([email])
+}
+
+// ============================================================================
+// Desktop app sign-in (device code flow)
+// ============================================================================
+
+// A pending sign-in from the desktop app. The app holds the secret device code
+// (only its hash is stored); the user approves the short user code on the web.
+model DeviceAuthRequest {
+  id             String   @id @default(cuid())
+  deviceCodeHash String   @unique @db.VarChar(64)
+  userCode       String   @unique @db.VarChar(9)
+  deviceName     String   @db.VarChar(100)
+  userId         String?
+  status         String   @default("pending") @db.VarChar(20) // pending | approved | denied | consumed
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+// A signed-in desktop installation. The token is only ever stored hashed.
+model Device {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String    @db.VarChar(100)
+  tokenHash  String    @unique @db.VarChar(64)
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model UserProfile {

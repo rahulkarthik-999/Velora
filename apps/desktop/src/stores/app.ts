@@ -8,6 +8,7 @@ export type Page =
   | 'live'
   | 'sessions'
   | 'resume'
+  | 'knowledge'
   | 'job'
   | 'settings'
   | 'usage'

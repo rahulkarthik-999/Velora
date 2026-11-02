@@ -4,7 +4,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState};
 
 use crate::{
-    commands,
+    commands, copilot,
     error::{AppError, AppResult},
     settings::ShortcutSettings,
     AppState,
@@ -35,6 +35,23 @@ pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
         }
         return;
     }
+    if matches(&configured.answer_now) {
+        copilot::answer_from_shortcut(app);
+        return;
+    }
+    let toggle = if matches(&configured.toggle_auto_answer) {
+        Some(copilot::Toggle::AutoAnswer)
+    } else if matches(&configured.toggle_click_through) {
+        Some(copilot::Toggle::ClickThrough)
+    } else {
+        None
+    };
+    if let Some(which) = toggle {
+        if let Err(e) = copilot::toggle(app, which) {
+            let _ = app.emit(commands::APP_NOTICE, e.to_string());
+        }
+        return;
+    }
 
     let action: fn(&AppHandle) -> AppResult<()> = if matches(&configured.pause_resume) {
         |app| commands::session_toggle_pause(app).map(|_| ())
@@ -54,7 +71,7 @@ pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
             let message = match e {
                 // Pause/resume/end only fail this way when no session is running.
                 AppError::InvalidTransition { .. } => {
-                    "No session is running. Start one from the Live Interview page.".to_string()
+                    "No session is running. Start one from the Live Copilot page.".to_string()
                 }
                 other => other.to_string(),
             };

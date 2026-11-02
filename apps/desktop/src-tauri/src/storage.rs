@@ -118,6 +118,43 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX idx_practice_items_session ON practice_items(session_id, position);
     "#,
+    // v3: knowledge base documents and live copilot answers
+    r#"
+    CREATE TABLE knowledge_docs (
+        id            TEXT PRIMARY KEY,
+        title         TEXT NOT NULL,
+        source        TEXT NOT NULL CHECK (source IN ('note', 'file')),
+        text          TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL
+    );
+
+    CREATE TABLE knowledge_chunks (
+        id       TEXT PRIMARY KEY,
+        doc_id   TEXT NOT NULL REFERENCES knowledge_docs(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        text     TEXT NOT NULL
+    );
+    CREATE INDEX idx_knowledge_chunks_doc ON knowledge_chunks(doc_id, position);
+
+    CREATE VIRTUAL TABLE knowledge_chunks_fts USING fts5(
+        text, content='knowledge_chunks', content_rowid='rowid', tokenize='porter unicode61'
+    );
+    CREATE TRIGGER knowledge_ai AFTER INSERT ON knowledge_chunks BEGIN
+        INSERT INTO knowledge_chunks_fts(rowid, text) VALUES (new.rowid, new.text);
+    END;
+    CREATE TRIGGER knowledge_ad AFTER DELETE ON knowledge_chunks BEGIN
+        INSERT INTO knowledge_chunks_fts(knowledge_chunks_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+    END;
+
+    CREATE TABLE live_answers (
+        id            TEXT PRIMARY KEY,
+        session_id    TEXT REFERENCES interview_sessions(id) ON DELETE CASCADE,
+        question      TEXT NOT NULL,
+        answer_json   TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL
+    );
+    CREATE INDEX idx_live_answers_session ON live_answers(session_id, created_at_ms);
+    "#,
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -287,8 +324,10 @@ impl Db {
     }
 }
 
+mod live;
 mod prep;
 #[allow(unused_imports)]
+pub use live::*;
 pub use prep::*;
 
 const SEGMENT_SELECT: &str =

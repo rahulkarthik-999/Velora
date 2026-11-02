@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Check } from 'lucide-react';
 import { ipc } from '../../lib/ipc';
 import { useApp } from '../../stores/app';
-import type { AnswerStyle, AudioDevice, AudioDevices, Settings, ShortcutSettings, Theme } from '../../types';
+import type { AnswerStyle, AudioDevice, AudioDevices, CopilotSettings, Settings, ShortcutSettings, Theme, TranscriptionEngine } from '../../types';
 
 function DeviceSelect({
   devices,
@@ -42,7 +42,10 @@ function DeviceSelect({
 }
 
 const SHORTCUT_LABELS: Record<keyof ShortcutSettings, string> = {
+  answerNow: 'Answer now',
   toggleCopilot: 'Show / hide copilot panel',
+  toggleAutoAnswer: 'Auto-answer on / off',
+  toggleClickThrough: 'Click-through on / off',
   pauseResume: 'Pause / resume session',
   endSession: 'End session',
 };
@@ -82,6 +85,8 @@ export function SettingsPage() {
     setDraft({ ...draft, ...patch });
   };
 
+  const updateCopilot = (patch: Partial<CopilotSettings>) => update({ copilot: { ...draft.copilot, ...patch } });
+
   const onSave = async () => {
     setSaving(true);
     const ok = await saveSettings(draft);
@@ -104,7 +109,7 @@ export function SettingsPage() {
             <option value="light">Light</option>
           </select>
         </Row>
-        <Row label="Model answer style" hint="How practice feedback writes its example answers.">
+        <Row label="Answer style" hint="How live answers and practice model answers are written.">
           <select
             className="field"
             value={draft.answerStyle}
@@ -115,7 +120,7 @@ export function SettingsPage() {
             <option value="star">STAR: situation, task, action, result</option>
           </select>
         </Row>
-        <Row label="Custom instructions" hint="Tailors practice questions, feedback and model answers.">
+        <Row label="Custom instructions" hint="Tailors live answers, practice questions, feedback and model answers.">
           <textarea
             className="field min-h-24"
             value={draft.customInstructions}
@@ -126,17 +131,90 @@ export function SettingsPage() {
           />
           <div className="muted mt-1 text-right text-xs">{draft.customInstructions.length} / 1500</div>
         </Row>
-        <Row label="Speech model" hint="Download models on the Overview page.">
+        <Row label="Transcription" hint="OpenAI is the most accurate. On this PC keeps audio private and works offline.">
+          <select
+            className="field"
+            value={draft.transcription.engine}
+            onChange={(e) => update({ transcription: { ...draft.transcription, engine: e.target.value as TranscriptionEngine } })}
+          >
+            <option value="cloud">OpenAI (cloud, uses your Velora account)</option>
+            <option value="local">On this PC (whisper)</option>
+          </select>
+        </Row>
+        <Row label="Language" hint="Two-letter code for cloud transcription, e.g. en, hi, es. Leave empty to detect.">
+          <input
+            className="field font-mono"
+            value={draft.transcription.language}
+            maxLength={2}
+            spellCheck={false}
+            aria-label="Transcription language"
+            onChange={(e) => update({ transcription: { ...draft.transcription, language: e.target.value.toLowerCase() } })}
+          />
+        </Row>
+        <Row label="On-device speech model" hint="Used when transcribing on this PC. Download models on the Overview page.">
           <select
             className="field"
             value={draft.transcription.modelId}
-            onChange={(e) => update({ transcription: { modelId: e.target.value } })}
+            onChange={(e) => update({ transcription: { ...draft.transcription, modelId: e.target.value } })}
           >
             <option value="small.en-q5_1">small.en: recommended</option>
             <option value="base.en-q5_1">base.en: lighter and faster</option>
             <option value="small.en-q8_0">small.en Q8: most accurate</option>
           </select>
         </Row>
+      </section>
+
+      <section className="card divide-y divide-[var(--border)] px-5">
+        <h2 className="py-3 text-sm font-semibold">Copilot overlay</h2>
+        <Row label="Opacity" hint="How see-through the copilot panel is.">
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0.3}
+              max={1}
+              step={0.02}
+              className="flex-1 accent-[var(--color-accent)]"
+              value={draft.copilot.opacity}
+              aria-label="Copilot opacity"
+              onChange={(e) => updateCopilot({ opacity: Number(e.target.value) })}
+            />
+            <span className="muted w-10 text-right text-xs tabular-nums">{Math.round(draft.copilot.opacity * 100)}%</span>
+          </div>
+        </Row>
+        <Row label="Text size">
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0.8}
+              max={1.5}
+              step={0.05}
+              className="flex-1 accent-[var(--color-accent)]"
+              value={draft.copilot.fontScale}
+              aria-label="Copilot text size"
+              onChange={(e) => updateCopilot({ fontScale: Number(e.target.value) })}
+            />
+            <span className="muted w-10 text-right text-xs tabular-nums">{Math.round(draft.copilot.fontScale * 100)}%</span>
+          </div>
+        </Row>
+        {(
+          [
+            ['autoAnswer', 'Auto-answer', 'Answer when the interviewer finishes a question.'],
+            ['alwaysOnTop', 'Always on top', 'Keep the panel above other windows.'],
+            ['clickThrough', 'Click-through', 'Clicks pass through the panel to the window behind it.'],
+            ['showTranscript', 'Show live transcript', 'Show the transcript under the answer.'],
+            ['compact', 'Compact answers', 'Only the answer, without key points or follow-ups.'],
+          ] as [keyof CopilotSettings, string, string][]
+        ).map(([key, label, hint]) => (
+          <Row key={key} label={label} hint={hint}>
+            <input
+              type="checkbox"
+              className="mt-1 accent-[var(--color-accent)]"
+              checked={draft.copilot[key] as boolean}
+              aria-label={label}
+              onChange={(e) => updateCopilot({ [key]: e.target.checked })}
+            />
+          </Row>
+        ))}
       </section>
 
       <section className="card divide-y divide-[var(--border)] px-5">
@@ -150,7 +228,7 @@ export function SettingsPage() {
             onChange={(id) => update({ audio: { ...draft.audio, microphoneDeviceId: id } })}
           />
         </Row>
-        <Row label="System audio" hint="What a recorded session transcribes: sound from your speakers or headphones.">
+        <Row label="System audio" hint="What the live copilot listens to: sound from your speakers or headphones.">
           <DeviceSelect
             devices={devices?.outputs}
             value={draft.audio.systemAudioDeviceId}

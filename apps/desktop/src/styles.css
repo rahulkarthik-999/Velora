@@ -111,3 +111,12 @@ textarea {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
+
+/* Copilot overlay: the window is transparent, so the panel sets its own opacity. */
+.copilot-panel {
+  background: color-mix(in srgb, var(--bg) var(--panel-alpha, 96%), transparent);
+}
+
+.copilot-panel .card {
+  background: color-mix(in srgb, var(--surface) var(--panel-alpha, 96%), transparent);
+}

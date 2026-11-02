@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import {
   BarChart3,
+  BookOpen,
   Briefcase,
   FileText,
   GraduationCap,
@@ -21,13 +22,15 @@ import { AccountPage, UsagePage } from '../account/AccountPage';
 import { JobsPage } from '../prep/JobsPage';
 import { PracticePage } from '../prep/PracticePage';
 import { ResumePage } from '../prep/ResumePage';
+import { KnowledgePage } from '../prep/KnowledgePage';
 
 const NAV: { page: Page; label: string; Icon: typeof LayoutDashboard }[] = [
   { page: 'overview', label: 'Overview', Icon: LayoutDashboard },
+  { page: 'live', label: 'Live Copilot', Icon: Radio },
   { page: 'practice', label: 'Practice', Icon: GraduationCap },
+  { page: 'knowledge', label: 'Knowledge Base', Icon: BookOpen },
   { page: 'resume', label: 'My Resume', Icon: FileText },
   { page: 'job', label: 'Job Context', Icon: Briefcase },
-  { page: 'live', label: 'Record Session', Icon: Radio },
   { page: 'sessions', label: 'Transcripts', Icon: History },
   { page: 'settings', label: 'AI Settings', Icon: SettingsIcon },
   { page: 'usage', label: 'Usage', Icon: BarChart3 },
@@ -48,6 +51,8 @@ function PageContent({ page }: { page: Page }) {
       return <SessionsPage />;
     case 'resume':
       return <ResumePage />;
+    case 'knowledge':
+      return <KnowledgePage />;
     case 'job':
       return <JobsPage />;
     case 'usage':

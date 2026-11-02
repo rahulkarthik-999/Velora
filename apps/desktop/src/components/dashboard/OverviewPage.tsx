@@ -40,7 +40,7 @@ export function OverviewPage() {
           <div className="muted text-sm">The copilot opens in a small always-on-top window you can move anywhere.</div>
         </div>
         <button className="btn btn-primary" onClick={() => setPage('live')}>
-          <Radio size={16} /> Go to Live Interview
+          <Radio size={16} /> Go to Live Copilot
         </button>
       </div>
 

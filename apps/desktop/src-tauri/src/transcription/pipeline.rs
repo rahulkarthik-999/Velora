@@ -5,8 +5,9 @@
 //! - one processing thread per source (resample, VAD, segmenting)
 //! - one transcription worker owning the single model instance
 //!
-//! Raw audio only ever lives in these bounded in-memory queues. It is never
-//! written to disk or sent over the network.
+//! Raw audio only ever lives in these bounded in-memory queues and is never
+//! written to disk. With the cloud transcriber, each speech clip is sent to
+//! the Velora API for transcription and then dropped.
 
 use std::{
     path::PathBuf,
@@ -21,7 +22,10 @@ use std::{
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use serde::Serialize;
 
-use super::engine::{TranscribeOptions, WhisperModel};
+use super::{
+    cloud::{self, CloudTranscriber},
+    engine::{TranscribeOptions, WhisperModel},
+};
 use crate::{
     audio::{
         capture::{self, CaptureEvent, RunningCapture, SourceKind},
@@ -58,11 +62,27 @@ pub struct SourceConfig {
 }
 
 #[derive(Debug, Clone)]
+pub enum TranscriberConfig {
+    /// whisper.cpp on this PC.
+    Local { model_id: String, model_path: PathBuf },
+    /// OpenAI through the Velora API.
+    Cloud { base_url: String, token: String, language: String },
+}
+
+impl TranscriberConfig {
+    pub fn label(&self) -> String {
+        match self {
+            TranscriberConfig::Local { model_id, .. } => model_id.clone(),
+            TranscriberConfig::Cloud { .. } => "OpenAI (cloud)".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct PipelineConfig {
     pub session_id: String,
     pub sources: Vec<SourceConfig>,
-    pub model_id: String,
-    pub model_path: PathBuf,
+    pub transcriber: TranscriberConfig,
     pub vad: VadConfig,
     pub transcribe: TranscribeOptions,
     /// Ignore the mic while the interviewer is speaking through the speakers.
@@ -312,21 +332,32 @@ fn spawn_worker(
     std::thread::Builder::new()
         .name("transcriber".into())
         .spawn(move || {
-            emit(PipelineEvent::TranscriberLoading { model_id: cfg.model_id.clone() });
+            let label = cfg.transcriber.label();
+            emit(PipelineEvent::TranscriberLoading { model_id: label.clone() });
             let started = Instant::now();
-            let mut model = match WhisperModel::load(&cfg.model_path) {
-                Ok(m) => m,
-                Err(e) => {
-                    log::error!("Model load failed: {e}");
-                    emit(PipelineEvent::TranscriberFailed { message: e.to_string() });
-                    // Keep draining so processors never block on a dead worker.
-                    while jobs.recv().is_ok() {}
-                    return;
-                }
+            let mut engine = match &cfg.transcriber {
+                TranscriberConfig::Local { model_path, .. } => match WhisperModel::load(model_path) {
+                    Ok(m) => Engine::Local(m),
+                    Err(e) => {
+                        log::error!("Model load failed: {e}");
+                        emit(PipelineEvent::TranscriberFailed { message: e.to_string() });
+                        // Keep draining so processors never block on a dead worker.
+                        while jobs.recv().is_ok() {}
+                        return;
+                    }
+                },
+                TranscriberConfig::Cloud { base_url, token, language } => Engine::Cloud(CloudTranscriber::new(
+                    base_url,
+                    token.clone(),
+                    language.clone(),
+                    cfg.transcribe.initial_prompt.clone(),
+                )),
             };
             let load_ms = started.elapsed().as_millis() as u64;
-            log::info!("Loaded {} in {load_ms} ms", cfg.model_id);
-            emit(PipelineEvent::TranscriberReady { model_id: cfg.model_id.clone(), load_ms });
+            log::info!("Transcriber {label} ready in {load_ms} ms");
+            emit(PipelineEvent::TranscriberReady { model_id: label, load_ms });
+            // Report each distinct cloud error once, not once per sentence.
+            let mut last_cloud_error = String::new();
 
             while let Ok(job) = jobs.recv() {
                 if abort.load(Ordering::Relaxed) != 0 {
@@ -334,12 +365,29 @@ fn spawn_worker(
                 }
                 let audio_ms = job.segment.end_ms - job.segment.start_ms;
                 let t0 = Instant::now();
-                let results = match model.transcribe(&job.segment.samples, &cfg.transcribe, &abort) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        log::error!("Transcription error: {e}");
-                        continue;
-                    }
+                let results = match &mut engine {
+                    Engine::Local(model) => match model.transcribe(&job.segment.samples, &cfg.transcribe, &abort) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            log::error!("Transcription error: {e}");
+                            continue;
+                        }
+                    },
+                    Engine::Cloud(c) => match c.transcribe(&job.segment.samples, TARGET_RATE) {
+                        Ok(r) => {
+                            last_cloud_error.clear();
+                            r
+                        }
+                        Err(e) => {
+                            let message = cloud::describe(&e);
+                            log::warn!("Cloud transcription failed: {message}");
+                            if message != last_cloud_error {
+                                emit(PipelineEvent::TranscriberFailed { message: message.clone() });
+                                last_cloud_error = message;
+                            }
+                            continue;
+                        }
+                    },
                 };
                 log::debug!("Transcribed {audio_ms} ms in {} ms", t0.elapsed().as_millis());
 
@@ -368,6 +416,11 @@ fn spawn_worker(
             // Model drops here, releasing its memory.
         })
         .map_err(|e| AppError::Internal(format!("Could not start transcriber: {e}")))
+}
+
+enum Engine {
+    Local(WhisperModel),
+    Cloud(CloudTranscriber),
 }
 
 /// Lines with a lower mean token probability are almost always noise.
@@ -495,8 +548,7 @@ mod tests {
                 SourceConfig { kind: SourceKind::SystemAudio, device_id: None },
                 SourceConfig { kind: SourceKind::Microphone, device_id: None },
             ],
-            model_id: "test".into(),
-            model_path,
+            transcriber: TranscriberConfig::Local { model_id: "test".into(), model_path },
             vad: VadConfig::default(),
             transcribe: TranscribeOptions::default(),
             echo_guard: true,
@@ -542,8 +594,7 @@ mod tests {
         let cfg = PipelineConfig {
             session_id: "e2e".into(),
             sources: vec![SourceConfig { kind: SourceKind::SystemAudio, device_id: None }],
-            model_id: "test".into(),
-            model_path,
+            transcriber: TranscriberConfig::Local { model_id: "test".into(), model_path },
             vad: VadConfig::default(),
             transcribe: TranscribeOptions::default(),
             echo_guard: true,
@@ -581,8 +632,7 @@ mod tests {
         let cfg = PipelineConfig {
             session_id: "s".into(),
             sources: vec![],
-            model_id: "m".into(),
-            model_path: PathBuf::from("missing.bin"),
+            transcriber: TranscriberConfig::Local { model_id: "m".into(), model_path: PathBuf::from("missing.bin") },
             vad: VadConfig::default(),
             transcribe: TranscribeOptions::default(),
             echo_guard: true,

@@ -8,14 +8,15 @@ use crate::{
     error::{AppError, AppResult},
     now_ms,
     session::{CaptureState, CaptureStatus, Session, SessionMode, SessionSnapshot},
-    settings::Settings,
+    settings::{Settings, TranscriptionEngine},
     shortcuts,
     storage::{SessionRecord, TranscriptSegment},
     system::{self, SystemInfo},
     transcription::{
         engine::{self, TranscribeOptions},
         models::{self, InstallProgress, ModelStatus},
-        pipeline::{Emit, Pipeline, PipelineConfig, PipelineEvent, SourceConfig},
+        cloud,
+        pipeline::{Emit, Pipeline, PipelineConfig, PipelineEvent, SourceConfig, TranscriberConfig},
     },
     AppState,
 };
@@ -54,6 +55,7 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, settings: Set
     }
 
     let saved = state.settings.save(settings)?;
+    crate::copilot::apply_overlay(&app);
     log::info!("Settings updated");
     let _ = app.emit(SETTINGS_CHANGED, &saved);
     Ok(saved)
@@ -227,15 +229,26 @@ pub fn session_start(app: &AppHandle, mode: SessionMode) -> AppResult<SessionSna
     let mut session = state.session.lock().expect("session lock poisoned");
     let settings = state.settings.get();
 
-    let installed: Vec<_> = models::statuses(&state.models_dir).into_iter().filter(|m| m.installed).collect();
-    let available_mb = system::collect("").map(|s| s.available_memory_mb).unwrap_or(u64::MAX);
-    let (model, notice) = models::select(&installed, &settings.transcription.model_id, available_mb)?;
-    if let Some(n) = &notice {
-        log::warn!("{n}");
-        let _ = app.emit(PIPELINE_EVENT, PipelineEvent::TranscriberFailed { message: n.clone() });
-    }
-    let model_path = models::installed_path(&state.models_dir, &model)
-        .ok_or_else(|| AppError::Internal("The speech model is no longer installed.".into()))?;
+    let transcriber = match settings.transcription.engine {
+        TranscriptionEngine::Cloud => TranscriberConfig::Cloud {
+            base_url: settings.api_base_url.clone(),
+            token: cloud::check_signed_in()?,
+            language: settings.transcription.language.clone(),
+        },
+        TranscriptionEngine::Local => {
+            let installed: Vec<_> = models::statuses(&state.models_dir).into_iter().filter(|m| m.installed).collect();
+            let available_mb = system::collect("").map(|s| s.available_memory_mb).unwrap_or(u64::MAX);
+            let (model, notice) = models::select(&installed, &settings.transcription.model_id, available_mb)?;
+            if let Some(n) = &notice {
+                log::warn!("{n}");
+                let _ = app.emit(PIPELINE_EVENT, PipelineEvent::TranscriberFailed { message: n.clone() });
+            }
+            let model_path = models::installed_path(&state.models_dir, &model)
+                .ok_or_else(|| AppError::Internal("The speech model is no longer installed.".into()))?;
+            TranscriberConfig::Local { model_id: model.id.clone(), model_path }
+        }
+    };
+    let transcribe = TranscribeOptions { initial_prompt: vocabulary_hint(&state, &settings), ..TranscribeOptions::default() };
 
     // Each session type has one source: a live session transcribes the other
     // side (system audio) and never opens the mic; practice records your mic.
@@ -245,16 +258,16 @@ pub fn session_start(app: &AppHandle, mode: SessionMode) -> AppResult<SessionSna
     }];
 
     session.start(mode, now_ms())?;
+    crate::copilot::reset_answered(&state);
     let session_id = session.id().expect("started session has an id").to_string();
     persist(&state, &session.snapshot(now_ms(), CaptureState::default()));
 
     let cfg = PipelineConfig {
         session_id,
         sources,
-        model_id: model.id.clone(),
-        model_path,
+        transcriber,
         vad: Default::default(),
-        transcribe: TranscribeOptions::default(),
+        transcribe,
         // Only matters when mic and system audio run together.
         echo_guard: true,
     };
@@ -274,6 +287,20 @@ pub fn session_start(app: &AppHandle, mode: SessionMode) -> AppResult<SessionSna
     publish(app, "start", &snap);
     let _ = show_copilot(app.clone());
     Ok(snap)
+}
+
+/// Job title and top skills, so names like "Kubernetes" are spelled right.
+fn vocabulary_hint(state: &AppState, settings: &Settings) -> Option<String> {
+    let mut words: Vec<String> = Vec::new();
+    if let Some(job) = settings.copilot.job_id.as_deref().and_then(|id| state.db.job(id).ok().flatten()) {
+        words.push(job.title);
+    }
+    if let Ok(Some(profile)) = state.db.profile() {
+        if let Some(skills) = profile["skills"].as_array() {
+            words.extend(skills.iter().take(25).filter_map(|s| s.as_str().map(str::to_string)));
+        }
+    }
+    (!words.is_empty()).then(|| format!("Interview. Topics: {}.", words.join(", ")))
 }
 
 pub fn session_pause(app: &AppHandle) -> AppResult<SessionSnapshot> {

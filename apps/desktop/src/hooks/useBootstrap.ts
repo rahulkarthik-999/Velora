@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { ipc, onAppNotice, onPipelineEvent, onSessionChanged, onSettingsChanged } from '../lib/ipc';
+import { ipc, onAppNotice, onCopilotAnswer, onPipelineEvent, onSessionChanged, onSettingsChanged } from '../lib/ipc';
+import { useCopilot } from '../stores/copilot';
 import { useApp } from '../stores/app';
 import { useTranscript } from '../stores/transcript';
 import type { Theme } from '../types';
@@ -16,6 +17,7 @@ export function useBootstrap() {
       onSessionChanged(setSession),
       onSettingsChanged(setSettings),
       onAppNotice(showNotice),
+      onCopilotAnswer((event) => useCopilot.getState().handle(event)),
       onPipelineEvent((event) => {
         useTranscript.getState().handle(event);
         // A device dropping out changes the capture indicators.
@@ -27,6 +29,7 @@ export function useBootstrap() {
 
   useEffect(() => {
     useTranscript.getState().attach(sessionId);
+    useCopilot.getState().attach(sessionId);
   }, [sessionId]);
 
   useEffect(() => applyTheme(theme), [theme]);

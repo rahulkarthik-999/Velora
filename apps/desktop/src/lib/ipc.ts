@@ -2,6 +2,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   AccountEvent,
+  AnswerEvent,
+  KnowledgeDoc,
+  SavedAnswer,
   AccountStatus,
   AudioDevices,
   CandidateFact,
@@ -83,7 +86,17 @@ export const ipc = {
   showCopilot: () => call<void>('show_copilot'),
   toggleCopilot: () => call<void>('toggle_copilot'),
   showMain: () => call<void>('show_main'),
+  liveAnswer: (question: string | null) => call<SavedAnswer>('live_answer', { question }),
+  getLiveAnswers: (sessionId: string) => call<SavedAnswer[]>('get_live_answers', { sessionId }),
+  listKnowledge: () => call<KnowledgeDoc[]>('list_knowledge'),
+  addKnowledgeNote: (title: string, text: string) => call<KnowledgeDoc>('add_knowledge_note', { title, text }),
+  importKnowledge: (path: string) => call<KnowledgeDoc>('import_knowledge', { path }),
+  deleteKnowledge: (id: string) => call<void>('delete_knowledge', { id }),
 };
+
+export function onCopilotAnswer(cb: (e: AnswerEvent) => void): Promise<UnlistenFn> {
+  return listen<AnswerEvent>('copilot-answer', (e) => cb(e.payload));
+}
 
 export function onSessionChanged(cb: (s: SessionSnapshot) => void): Promise<UnlistenFn> {
   return listen<SessionSnapshot>('session-changed', (e) => cb(e.payload));

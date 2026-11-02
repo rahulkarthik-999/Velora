@@ -36,6 +36,9 @@ pub struct ShortcutSettings {
     pub toggle_copilot: String,
     pub pause_resume: String,
     pub end_session: String,
+    pub answer_now: String,
+    pub toggle_auto_answer: String,
+    pub toggle_click_through: String,
 }
 
 impl Default for ShortcutSettings {
@@ -44,16 +47,22 @@ impl Default for ShortcutSettings {
             toggle_copilot: "Ctrl+Shift+V".into(),
             pause_resume: "Ctrl+Shift+Space".into(),
             end_session: "Ctrl+Shift+E".into(),
+            answer_now: "Ctrl+Shift+Enter".into(),
+            toggle_auto_answer: "Ctrl+Shift+U".into(),
+            toggle_click_through: "Ctrl+Shift+K".into(),
         }
     }
 }
 
 impl ShortcutSettings {
-    pub fn entries(&self) -> [(&'static str, &str); 3] {
+    pub fn entries(&self) -> [(&'static str, &str); 6] {
         [
             ("toggleCopilot", self.toggle_copilot.as_str()),
             ("pauseResume", self.pause_resume.as_str()),
             ("endSession", self.end_session.as_str()),
+            ("answerNow", self.answer_now.as_str()),
+            ("toggleAutoAnswer", self.toggle_auto_answer.as_str()),
+            ("toggleClickThrough", self.toggle_click_through.as_str()),
         ]
     }
 }
@@ -75,12 +84,60 @@ impl Default for AudioSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct TranscriptionSettings {
+    pub engine: TranscriptionEngine,
+    /// On-device model, used when the engine is `Local`.
     pub model_id: String,
+    /// Two-letter language code passed to the cloud transcriber; empty detects it.
+    pub language: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TranscriptionEngine {
+    /// OpenAI, through the Velora API. Needs a connected account.
+    Cloud,
+    /// whisper.cpp on this PC. Audio never leaves the machine.
+    Local,
 }
 
 impl Default for TranscriptionSettings {
     fn default() -> Self {
-        Self { model_id: "small.en-q5_1".into() }
+        Self { engine: TranscriptionEngine::Cloud, model_id: "small.en-q5_1".into(), language: "en".into() }
+    }
+}
+
+/// The live copilot panel: answers and how the overlay looks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CopilotSettings {
+    /// Answer automatically when the interviewer finishes a question.
+    pub auto_answer: bool,
+    /// Job whose title and description ground live answers.
+    pub job_id: Option<String>,
+    /// Panel opacity, 0.3 (see-through) to 1.0.
+    pub opacity: f32,
+    /// Text size multiplier for the panel, 0.8 to 1.5.
+    pub font_scale: f32,
+    pub always_on_top: bool,
+    /// Mouse clicks pass through the panel to the window behind it.
+    pub click_through: bool,
+    pub show_transcript: bool,
+    /// Hides key points, sources and follow-ups to keep only the answer.
+    pub compact: bool,
+}
+
+impl Default for CopilotSettings {
+    fn default() -> Self {
+        Self {
+            auto_answer: true,
+            job_id: None,
+            opacity: 0.96,
+            font_scale: 1.0,
+            always_on_top: true,
+            click_through: false,
+            show_transcript: true,
+            compact: false,
+        }
     }
 }
 
@@ -93,7 +150,8 @@ pub struct Settings {
     pub shortcuts: ShortcutSettings,
     pub audio: AudioSettings,
     pub transcription: TranscriptionSettings,
-    /// Tailors practice questions, feedback and model answers (tone, length, focus).
+    pub copilot: CopilotSettings,
+    /// Tailors live answers, practice questions, feedback and model answers (tone, length, focus).
     pub custom_instructions: String,
     pub api_base_url: String,
 }
@@ -107,6 +165,7 @@ impl Default for Settings {
             shortcuts: ShortcutSettings::default(),
             audio: AudioSettings::default(),
             transcription: TranscriptionSettings::default(),
+            copilot: CopilotSettings::default(),
             custom_instructions: String::new(),
             api_base_url: "https://veloraweb.online".into(),
         }
@@ -136,6 +195,16 @@ impl Settings {
         }
 
         crate::transcription::models::find(&self.transcription.model_id)?;
+        let lang = &self.transcription.language;
+        if !(lang.is_empty() || (lang.len() == 2 && lang.chars().all(|c| c.is_ascii_lowercase()))) {
+            return Err(AppError::InvalidSettings("Language must be a two-letter code such as en, or empty to detect it.".into()));
+        }
+        if !(0.3..=1.0).contains(&self.copilot.opacity) {
+            return Err(AppError::InvalidSettings("Panel opacity must be between 30% and 100%.".into()));
+        }
+        if !(0.8..=1.5).contains(&self.copilot.font_scale) {
+            return Err(AppError::InvalidSettings("Text size must be between 80% and 150%.".into()));
+        }
         if self.custom_instructions.chars().count() > MAX_CUSTOM_INSTRUCTIONS {
             return Err(AppError::InvalidSettings(format!(
                 "Custom instructions can be up to {MAX_CUSTOM_INSTRUCTIONS} characters."
@@ -236,6 +305,32 @@ mod tests {
         let mut s = Settings::default();
         s.shortcuts.end_session = s.shortcuts.toggle_copilot.clone();
         assert!(s.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_out_of_range_overlay_values() {
+        let mut s = Settings::default();
+        s.copilot.opacity = 0.1;
+        assert!(s.validate().is_err());
+        s.copilot.opacity = 0.8;
+        s.copilot.font_scale = 3.0;
+        assert!(s.validate().is_err());
+        s.copilot.font_scale = 1.2;
+        s.transcription.language = "English".into();
+        assert!(s.validate().is_err());
+        s.transcription.language = String::new();
+        assert!(s.validate().is_ok());
+    }
+
+    #[test]
+    fn older_settings_files_gain_new_shortcuts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(&path, r#"{ "shortcuts": { "toggleCopilot": "Ctrl+Alt+V" } }"#).unwrap();
+        let s = SettingsStore::load(path).get();
+        assert_eq!(s.shortcuts.toggle_copilot, "Ctrl+Alt+V");
+        assert_eq!(s.shortcuts.answer_now, "Ctrl+Shift+Enter");
+        assert!(s.copilot.auto_answer);
     }
 
     #[test]

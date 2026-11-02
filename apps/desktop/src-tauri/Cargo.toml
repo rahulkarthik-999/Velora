@@ -1,6 +1,6 @@
 [package]
 name = "velora-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Velora Interview Copilot"
 edition = "2021"
 rust-version = "1.80"
@@ -36,6 +36,7 @@ tauri-plugin-opener = "2"
 pdf-extract = "0.12"
 quick-xml = "0.42"
 keyring = { version = "3", features = ["windows-native"] }
+base64 = "0.23"
 zip = { version = "4", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]

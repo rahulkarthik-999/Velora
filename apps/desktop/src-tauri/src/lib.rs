@@ -4,6 +4,7 @@ mod documents;
 mod prep;
 mod transcription;
 mod commands;
+mod copilot;
 mod error;
 mod session;
 mod settings;
@@ -37,6 +38,10 @@ pub struct AppState {
     pub linking: Mutex<Option<Arc<AtomicBool>>>,
     /// Practice question whose answer is being recorded.
     pub recording_item: Mutex<Option<String>>,
+    /// A copilot answer is being written.
+    pub answering: AtomicBool,
+    /// Interviewer speech up to here (session ms) has been answered.
+    pub answered_until_ms: Mutex<i64>,
 }
 
 pub fn now_ms() -> u64 {
@@ -80,7 +85,10 @@ pub fn run() {
                 installing: Mutex::new(None),
                 linking: Mutex::new(None),
                 recording_item: Mutex::new(None),
+                answering: AtomicBool::new(false),
+                answered_until_ms: Mutex::new(-1),
             });
+            copilot::apply_overlay(app.handle());
 
             // A shortcut taken by another app must not stop Velora from starting.
             if let Err(e) = shortcuts::apply(app.handle(), &initial_shortcuts) {
@@ -146,6 +154,12 @@ pub fn run() {
             commands::show_copilot,
             commands::toggle_copilot,
             commands::show_main,
+            copilot::live_answer,
+            copilot::get_live_answers,
+            copilot::list_knowledge,
+            copilot::add_knowledge_note,
+            copilot::import_knowledge,
+            copilot::delete_knowledge,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Velora");

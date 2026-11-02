@@ -4,7 +4,7 @@ import { History, Trash2 } from 'lucide-react';
 import { ipc } from '../../lib/ipc';
 import { formatDuration } from '../../lib/format';
 import { useApp } from '../../stores/app';
-import type { SessionRecord, TranscriptSegment } from '../../types';
+import type { SavedAnswer, SessionRecord, TranscriptSegment } from '../../types';
 import { TranscriptView } from '../transcript/TranscriptView';
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -13,6 +13,7 @@ export function SessionsPage() {
   const [sessions, setSessions] = useState<SessionRecord[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
+  const [answers, setAnswers] = useState<SavedAnswer[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Reload when the live session changes state, so a just-ended session shows up.
   const liveStatus = useApp((s) => s.session?.status);
@@ -23,8 +24,10 @@ export function SessionsPage() {
   useEffect(load, [load, liveStatus]);
 
   useEffect(() => {
+    setAnswers([]);
     if (!selected) return setSegments([]);
     ipc.getTranscript(selected).then(setSegments, (e: Error) => setError(e.message));
+    ipc.getLiveAnswers(selected).then(setAnswers, () => {});
   }, [selected]);
 
   const remove = async (id: string) => {
@@ -56,7 +59,7 @@ export function SessionsPage() {
         <div className="card flex flex-col items-center gap-2 px-8 py-14 text-center">
           <History size={26} className="text-accent" />
           <p className="font-medium">No sessions yet</p>
-          <p className="muted text-sm">Sessions you run from the Live Interview page appear here.</p>
+          <p className="muted text-sm">Sessions you run from the Live Copilot page appear here.</p>
         </div>
       ) : (
         <div className="grid grid-cols-[280px_1fr] gap-4">
@@ -81,12 +84,27 @@ export function SessionsPage() {
           </ul>
           <div className="card max-h-[65vh] overflow-y-auto p-4">
             {selected ? (
-              <TranscriptView
-                segments={segments}
-                follow={false}
-                onSegmentSaved={(seg) => setSegments((all) => all.map((x) => (x.id === seg.id ? seg : x)))}
-                empty="Nothing was transcribed in this session."
-              />
+              <>
+                <TranscriptView
+                  segments={segments}
+                  follow={false}
+                  onSegmentSaved={(seg) => setSegments((all) => all.map((x) => (x.id === seg.id ? seg : x)))}
+                  empty="Nothing was transcribed in this session."
+                />
+                {answers.length > 0 && (
+                  <section className="mt-5 border-t border-[var(--border)] pt-4">
+                    <h2 className="mb-2 text-sm font-semibold">Copilot answers ({answers.length})</h2>
+                    <ol className="flex flex-col gap-3">
+                      {answers.map((a) => (
+                        <li key={a.id} className="select-text text-sm">
+                          <p className="muted text-xs">Q: {a.answer.question || a.question}</p>
+                          <p className="mt-0.5 whitespace-pre-wrap">{a.answer.answer}</p>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                )}
+              </>
             ) : (
               <p className="muted text-sm">Select a session to read its transcript.</p>
             )}

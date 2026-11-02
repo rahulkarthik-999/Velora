@@ -16,7 +16,7 @@ describe('Toast', () => {
   it('shows a notice and hides it after a few seconds', () => {
     vi.useFakeTimers();
     render(<Toast />);
-    act(() => useApp.getState().showNotice('No session is running. Start one from the Live Interview page.'));
+    act(() => useApp.getState().showNotice('No session is running. Start one from the Live Copilot page.'));
     expect(screen.getByRole('status').textContent).toContain('No session is running');
     act(() => vi.advanceTimersByTime(5_100));
     expect(screen.queryByRole('status')).toBeNull();

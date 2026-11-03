@@ -17,7 +17,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc, Mutex},
 };
 
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 
 use session::Session;
@@ -51,6 +51,21 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Startup can't continue: tell the user why instead of closing silently.
+fn fatal_startup_error(message: &str) -> ! {
+    log::error!("Startup failed: {message}");
+    rfd::MessageDialog::new()
+        .set_title("Velora can't start")
+        .set_description(format!(
+            "{message}
+
+If this keeps happening, install the latest version from https://veloraweb.online/download."
+        ))
+        .set_level(rfd::MessageLevel::Error)
+        .show();
+    std::process::exit(1);
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(
@@ -75,24 +90,42 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let store = SettingsStore::load(config_dir.join("settings.json"));
             let initial_shortcuts = store.get().shortcuts;
-            let db = Db::open(&app.path().app_data_dir()?.join("velora.db"))?;
+            let db = match Db::open(&app.path().app_data_dir()?.join("velora.db")) {
+                Ok(db) => db,
+                Err(e) => fatal_startup_error(&e.to_string()),
+            };
             app.manage(AppState {
                 settings: store,
                 session: Mutex::new(Session::default()),
                 pipeline: Mutex::new(None),
                 db: Arc::new(db),
-                models_dir: system::models_dir(),
+                models_dir: {
+                    system::migrate_models_dir();
+                    system::models_dir()
+                },
                 installing: Mutex::new(None),
                 linking: Mutex::new(None),
                 recording_item: Mutex::new(None),
                 answering: AtomicBool::new(false),
                 answered_until_ms: Mutex::new(-1),
             });
+
+            // Windows are created here, not by Tauri from the config ("create": false),
+            // so their pages can never call a command before AppState is managed.
+            for window in app.config().app.windows.clone() {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &window)?.build()?;
+            }
             copilot::apply_overlay(app.handle());
 
             // A shortcut taken by another app must not stop Velora from starting.
-            if let Err(e) = shortcuts::apply(app.handle(), &initial_shortcuts) {
-                log::error!("Could not register global shortcuts: {e}");
+            if let Some(message) = shortcuts::apply_best_effort(app.handle(), &initial_shortcuts) {
+                log::warn!("{message}");
+                // Give the windows a moment to start listening before showing it.
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(4));
+                    let _ = handle.emit(commands::APP_NOTICE, message);
+                });
             }
             log::info!("Velora {} started", app.package_info().version);
             Ok(())
@@ -132,6 +165,8 @@ pub fn run() {
             prep::account_status,
             prep::account_start_link,
             prep::account_cancel_link,
+            prep::account_register,
+            prep::account_login,
             prep::account_sign_out,
             prep::import_resume,
             prep::get_resume,

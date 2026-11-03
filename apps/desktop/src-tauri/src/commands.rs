@@ -250,12 +250,15 @@ pub fn session_start(app: &AppHandle, mode: SessionMode) -> AppResult<SessionSna
     };
     let transcribe = TranscribeOptions { initial_prompt: vocabulary_hint(&state, &settings), ..TranscribeOptions::default() };
 
-    // Each session type has one source: a live session transcribes the other
-    // side (system audio) and never opens the mic; practice records your mic.
-    let sources = vec![match mode {
-        SessionMode::Live => SourceConfig { kind: SourceKind::SystemAudio, device_id: settings.audio.system_audio_device_id.clone() },
-        SessionMode::Practice => SourceConfig { kind: SourceKind::Microphone, device_id: settings.audio.microphone_device_id.clone() },
-    }];
+    // A live session transcribes the other side (system audio), plus your mic only if
+    // you turned that on; practice records just your mic.
+    let system = SourceConfig { kind: SourceKind::SystemAudio, device_id: settings.audio.system_audio_device_id.clone() };
+    let mic = SourceConfig { kind: SourceKind::Microphone, device_id: settings.audio.microphone_device_id.clone() };
+    let sources = match mode {
+        SessionMode::Live if settings.copilot.transcribe_microphone => vec![system, mic],
+        SessionMode::Live => vec![system],
+        SessionMode::Practice => vec![mic],
+    };
 
     session.start(mode, now_ms())?;
     crate::copilot::reset_answered(&state);

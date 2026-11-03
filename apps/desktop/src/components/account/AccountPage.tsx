@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { openUrl } from '@tauri-apps/plugin-opener';
-import { CheckCircle2, ExternalLink, Loader2, LogOut, User } from 'lucide-react';
+import { CheckCircle2, LogOut } from 'lucide-react';
 import { ipc, onAccountChanged } from '../../lib/ipc';
-import type { AccountStatus, LinkStart } from '../../types';
-
-const EVENT_TEXT = {
-  denied: 'Sign-in was denied on the website.',
-  expired: 'The code expired. Start again.',
-  failed: 'Signed in, but the sign-in could not be saved on this PC.',
-} as const;
+import type { AccountStatus } from '../../types';
+import { AuthForm } from './AuthForm';
 
 export function useAccount() {
   const [status, setStatus] = useState<AccountStatus | null>(null);
@@ -29,36 +23,8 @@ export function useAccount() {
 
 export function AccountPage() {
   const { status, error, refresh } = useAccount();
-  const [link, setLink] = useState<LinkStart | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const unlisten = onAccountChanged((e) => {
-      setLink(null);
-      if (e.status !== 'signedIn' && e.status !== 'signedOut') setNotice(EVENT_TEXT[e.status]);
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
-
-  const connect = async () => {
-    setBusy(true);
-    setNotice(null);
-    try {
-      setLink(await ipc.accountStartLink());
-    } catch (e) {
-      setNotice((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const cancel = async () => {
-    await ipc.accountCancelLink();
-    setLink(null);
-  };
 
   const signOut = async () => {
     if (!window.confirm('Sign this PC out of your Velora account?')) return;
@@ -78,8 +44,9 @@ export function AccountPage() {
       <header>
         <h1 className="text-xl font-semibold">Account</h1>
         <p className="muted mt-1">
-          Practice questions and feedback use AI through your Velora account. Your resume, transcripts and audio stay on
-          this PC; only the question, your answer and a few relevant resume facts are sent when you ask for feedback.
+          Live answers, cloud transcription and practice feedback use AI through your Velora account. Your resume,
+          knowledge base, jobs, transcripts and answers are stored only on this PC. Your account holds your name, email,
+          plan and credit usage.
         </p>
       </header>
 
@@ -112,34 +79,9 @@ export function AccountPage() {
             <LogOut size={15} /> Sign out
           </button>
         </div>
-      ) : link ? (
-        <div className="card flex flex-col items-center gap-3 p-8 text-center">
-          <p className="text-sm">Approve this code in the browser window that just opened:</p>
-          <div className="font-mono text-3xl font-semibold tracking-[0.3em]" data-testid="user-code">
-            {link.userCode}
-          </div>
-          <p className="muted flex items-center gap-2 text-sm">
-            <Loader2 size={14} className="animate-spin" /> Waiting for approval…
-          </p>
-          <div className="flex gap-2">
-            <button className="btn" onClick={() => openUrl(link.verificationUrl)}>
-              <ExternalLink size={14} /> Open the page again
-            </button>
-            <button className="btn" onClick={cancel}>
-              Cancel
-            </button>
-          </div>
-        </div>
       ) : (
-        <div className="card flex items-center gap-4 p-5">
-          <User size={22} className="text-accent" />
-          <div className="flex-1">
-            <div className="font-medium">Not connected</div>
-            <div className="muted text-sm">Connect to generate practice questions and get feedback on your answers.</div>
-          </div>
-          <button className="btn btn-primary" onClick={connect} disabled={busy}>
-            {busy ? <Loader2 size={15} className="animate-spin" /> : null} Connect account
-          </button>
+        <div className="card max-w-md p-6">
+          <AuthForm />
         </div>
       )}
     </div>
@@ -156,8 +98,8 @@ export function UsagePage() {
       <header>
         <h1 className="text-xl font-semibold">Usage</h1>
         <p className="muted mt-1">
-          Each practice question set, feedback request or resume extraction uses 1 AI credit. Transcription runs on this PC
-          and is free.
+          Each live answer, practice question set, feedback request or resume extraction uses 1 AI credit. Transcription
+          does not use credits.
         </p>
       </header>
       {error && (

@@ -10,6 +10,9 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      // Lets someone who signed up in the desktop app with email + password also use Google.
+      // Google verifies the address; see events.linkAccount for what happens to the password.
+      allowDangerousEmailAccountLinking: true,
     }),
   ],
   session: {
@@ -35,6 +38,24 @@ export const authOptions: NextAuthOptions = {
     },
   },
   events: {
+    // Desktop sign-ups don't verify their email. When Google later proves who owns the
+    // address, a password set before that proof is removed and its devices are signed out,
+    // so whoever registered the address first can't keep access to the real owner's account.
+    async linkAccount({ user, account }) {
+      if (account.provider !== 'google') return;
+      const existing = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: { emailVerified: true, passwordHash: true },
+      });
+      if (existing?.passwordHash && !existing.emailVerified) {
+        await prisma.$transaction([
+          prisma.user.update({ where: { id: user.id }, data: { passwordHash: null, emailVerified: new Date() } }),
+          prisma.device.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } }),
+        ]);
+      } else if (existing && !existing.emailVerified) {
+        await prisma.user.update({ where: { id: user.id }, data: { emailVerified: new Date() } });
+      }
+    },
     async createUser({ user }) {
       // Create default profile and free subscription
       await prisma.$transaction([

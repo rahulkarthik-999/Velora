@@ -23,6 +23,19 @@ import { JobsPage } from '../prep/JobsPage';
 import { PracticePage } from '../prep/PracticePage';
 import { ResumePage } from '../prep/ResumePage';
 import { KnowledgePage } from '../prep/KnowledgePage';
+import { useAccount } from '../account/AccountPage';
+import { WelcomeScreen } from '../account/WelcomeScreen';
+import { useState } from 'react';
+
+const SKIP_KEY = 'velora.skipSignIn';
+
+function readSkip(): boolean {
+  try {
+    return localStorage.getItem(SKIP_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 const NAV: { page: Page; label: string; Icon: typeof LayoutDashboard }[] = [
   { page: 'overview', label: 'Overview', Icon: LayoutDashboard },
@@ -63,6 +76,26 @@ function PageContent({ page }: { page: Page }) {
 }
 
 export function MainShell() {
+  const { status } = useAccount();
+  const [skipped, setSkipped] = useState(readSkip);
+  if (status && !status.signedIn && !skipped) {
+    return (
+      <WelcomeScreen
+        onSkip={() => {
+          try {
+            localStorage.setItem(SKIP_KEY, '1');
+          } catch {
+            // Not remembered; the welcome screen shows again next launch.
+          }
+          setSkipped(true);
+        }}
+      />
+    );
+  }
+  return <Shell />;
+}
+
+function Shell() {
   const page = useApp((s) => s.page);
   const session = useApp((s) => s.session);
   const error = useApp((s) => s.error);

@@ -249,6 +249,12 @@ function OverlayPanel({ onClose }: { onClose: () => void }) {
           hint={`Clicks go to the window behind. Turn off with ${settings.shortcuts.toggleClickThrough}.`}
         />
         <Switch label="Show live transcript" checked={c.showTranscript} onChange={(v) => setCopilot({ showTranscript: v })} />
+        <Switch
+          label="Transcribe my microphone too"
+          checked={c.transcribeMicrophone}
+          onChange={(v) => setCopilot({ transcribeMicrophone: v })}
+          hint="Gives answers the whole conversation. Applies from the next session."
+        />
         <Switch label="Compact answers" checked={c.compact} onChange={(v) => setCopilot({ compact: v })} hint="Only the answer, no key points or follow-ups." />
       </div>
     </div>

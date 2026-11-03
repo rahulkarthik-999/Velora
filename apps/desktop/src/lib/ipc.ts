@@ -63,6 +63,9 @@ export const ipc = {
   accountStatus: () => call<AccountStatus>('account_status'),
   accountStartLink: () => call<LinkStart>('account_start_link'),
   accountCancelLink: () => call<void>('account_cancel_link'),
+  accountRegister: (name: string, email: string, password: string, acceptTerms: boolean) =>
+    call<void>('account_register', { name, email, password, acceptTerms }),
+  accountLogin: (email: string, password: string) => call<void>('account_login', { email, password }),
   accountSignOut: () => call<void>('account_sign_out'),
   importResume: (path: string) => call<ResumeInfo>('import_resume', { path }),
   getResume: () => call<ResumeInfo | null>('get_resume'),

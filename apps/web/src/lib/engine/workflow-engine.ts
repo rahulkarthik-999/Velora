@@ -4,6 +4,7 @@
 
 import prisma from '@/lib/db';
 import { getHandler, type StepHandlerInput } from '@/lib/ai/handlers';
+import { estimateCostUsd } from '@/lib/ai/models';
 import { isValidTaskTransition, isValidStepTransition, TIER_LIMITS, type SubscriptionTier } from '@velora/schemas';
 
 export class WorkflowEngine {
@@ -158,12 +159,14 @@ export class WorkflowEngine {
             userId,
             taskId: step.task.id,
             stepId: step.id,
-            provider: process.env.AI_PROVIDER || 'openai',
+            provider: result.usage.provider ?? 'openai',
             model: result.usage.model,
             inputTokens: result.usage.inputTokens,
             outputTokens: result.usage.outputTokens,
             creditsUsed: 1,
-            estimatedCostUsd: this.estimateCost(result.usage.inputTokens, result.usage.outputTokens),
+            estimatedCostUsd:
+              result.usage.estimatedCostUsd ??
+              estimateCostUsd(result.usage.model, result.usage.inputTokens, result.usage.outputTokens),
           },
         });
       }
@@ -315,14 +318,6 @@ export class WorkflowEngine {
         429
       );
     }
-  }
-
-  // --------------------------------------------------------------------------
-  // Estimate cost
-  // --------------------------------------------------------------------------
-  private estimateCost(inputTokens: number, outputTokens: number): number {
-    // Rough estimate based on typical pricing
-    return (inputTokens * 0.000005) + (outputTokens * 0.000015);
   }
 
   // --------------------------------------------------------------------------

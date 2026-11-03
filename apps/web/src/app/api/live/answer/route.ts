@@ -6,5 +6,6 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export function POST(req: NextRequest) {
-  return handlePractice(req, 'live-answer', LiveAnswerInput, LiveAnswerOutput, liveAnswerPrompt);
+  // Latency-sensitive: routed to Groq when configured, else gpt-4o-mini.
+  return handlePractice(req, 'live-answer', LiveAnswerInput, LiveAnswerOutput, liveAnswerPrompt, 'realtime');
 }

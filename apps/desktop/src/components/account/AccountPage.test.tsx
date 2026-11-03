@@ -21,9 +21,34 @@ describe('AccountPage', () => {
         : Promise.resolve({ userCode: 'KQ7M-X3PD', verificationUrl: 'https://veloraweb.online/desktop/link?code=KQ7M-X3PD', interval: 3, expiresIn: 600 })
     );
     render(<AccountPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /Connect account/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Continue with Google/ }));
     expect((await screen.findByTestId('user-code')).textContent).toBe('KQ7M-X3PD');
     expect(invoke).toHaveBeenCalledWith('account_start_link', undefined);
+  });
+
+  it('signs in with email and password', async () => {
+    invoke.mockImplementation((cmd: string) =>
+      cmd === 'account_status' ? Promise.resolve({ signedIn: false }) : Promise.reject("That email and password don't match an account.")
+    );
+    render(<AccountPage />);
+    fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'me@example.com' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret123' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign in' }).at(-1)!);
+    expect((await screen.findByRole('alert')).textContent).toContain("don't match");
+    expect(invoke).toHaveBeenCalledWith('account_login', { email: 'me@example.com', password: 'secret123' });
+  });
+
+  it('needs a name and accepted terms to create an account', async () => {
+    invoke.mockResolvedValue({ signedIn: false });
+    render(<AccountPage />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Create account' }));
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'me@example.com' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret123' } });
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Me' } });
+    const submit = screen.getAllByRole('button', { name: 'Create account' }).at(-1) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(submit.disabled).toBe(false);
   });
 
   it('shows who is signed in', async () => {

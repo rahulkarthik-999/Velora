@@ -22,6 +22,21 @@ pub fn apply(app: &AppHandle, shortcuts: &ShortcutSettings) -> AppResult<()> {
     Ok(())
 }
 
+/// Registers every shortcut it can, for startup: one combination taken by another app
+/// must not leave the rest unregistered. Returns a message naming the ones that failed.
+pub fn apply_best_effort(app: &AppHandle, shortcuts: &ShortcutSettings) -> Option<String> {
+    let gs = app.global_shortcut();
+    let _ = gs.unregister_all();
+    let failed: Vec<&str> = shortcuts.entries().into_iter().filter(|(_, value)| gs.register(*value).is_err()).map(|(_, v)| v).collect();
+    (!failed.is_empty()).then(|| {
+        format!(
+            "{} {} already used by another app. Pick a different shortcut in AI Settings.",
+            failed.join(", "),
+            if failed.len() == 1 { "is" } else { "are" }
+        )
+    })
+}
+
 pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
     if event.state != ShortcutState::Pressed {
         return;

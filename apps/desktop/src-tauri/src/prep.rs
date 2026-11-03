@@ -163,6 +163,45 @@ fn poll_link(app: AppHandle, start: LinkStart, cancel: Arc<AtomicBool>) {
     finish("expired");
 }
 
+#[derive(Deserialize)]
+struct PasswordAuth {
+    token: String,
+}
+
+/// Stores the device token from an email + password sign-in or sign-up.
+fn finish_password_auth(app: &AppHandle, path: &str, body: Value) -> AppResult<()> {
+    let state = app.state::<AppState>();
+    let resp: PasswordAuth = api(&state).post(path, None, &body).map_err(AppError::from)?;
+    api::save_token(&resp.token)?;
+    let _ = app.emit(ACCOUNT_CHANGED, json!({ "status": "signedIn" }));
+    log::info!("Signed in with email");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn account_register(app: AppHandle, name: String, email: String, password: String, accept_terms: bool) -> AppResult<()> {
+    blocking(move || {
+        let body = json!({
+            "name": name,
+            "email": email,
+            "password": password,
+            "deviceName": device_name(),
+            "acceptTerms": accept_terms,
+        });
+        finish_password_auth(&app, "/api/desktop/auth/register", body)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn account_login(app: AppHandle, email: String, password: String) -> AppResult<()> {
+    blocking(move || {
+        let body = json!({ "email": email, "password": password, "deviceName": device_name() });
+        finish_password_auth(&app, "/api/desktop/auth/login", body)
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn account_cancel_link(state: State<'_, AppState>) {
     if let Some(c) = state.linking.lock().expect("lock").take() {

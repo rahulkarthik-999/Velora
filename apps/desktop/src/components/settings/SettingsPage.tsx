@@ -202,6 +202,7 @@ export function SettingsPage() {
             ['alwaysOnTop', 'Always on top', 'Keep the panel above other windows.'],
             ['clickThrough', 'Click-through', 'Clicks pass through the panel to the window behind it.'],
             ['showTranscript', 'Show live transcript', 'Show the transcript under the answer.'],
+            ['transcribeMicrophone', 'Transcribe my microphone', 'In live sessions, also transcribe what you say so answers have the full conversation.'],
             ['compact', 'Compact answers', 'Only the answer, without key points or follow-ups.'],
           ] as [keyof CopilotSettings, string, string][]
         ).map(([key, label, hint]) => (

@@ -32,7 +32,7 @@ export function LiveInterviewPage() {
         <h1 className="text-xl font-semibold">Live Copilot</h1>
         <p className="muted mt-1">
           Listens to what plays through your speakers, transcribes it, and suggests answers from your knowledge base as
-          questions come in. Your microphone is not used.
+          questions come in. Your microphone is only used if you turn it on below.
         </p>
       </header>
 
@@ -107,6 +107,17 @@ export function LiveInterviewPage() {
                   onChange={(e) => saveSettings({ ...settings, copilot: { ...settings.copilot, autoAnswer: e.target.checked } })}
                 />
                 Answer automatically when the interviewer finishes a question
+              </label>
+              <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                <input
+                  type="checkbox"
+                  className="accent-[var(--color-accent)]"
+                  checked={settings.copilot.transcribeMicrophone}
+                  onChange={(e) =>
+                    saveSettings({ ...settings, copilot: { ...settings.copilot, transcribeMicrophone: e.target.checked } })
+                  }
+                />
+                Also transcribe my microphone, so answers know what I already said
               </label>
             </div>
           )}

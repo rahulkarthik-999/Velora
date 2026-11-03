@@ -41,7 +41,8 @@ DATABASE_URL="<direct url>" pnpm --filter @velora/web db:push
 | `NEXTAUTH_URL` | `https://veloraweb.online` |
 | `NEXTAUTH_SECRET` | output of `openssl rand -base64 32` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth client |
-| `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `AI_FALLBACK_MODEL` | see `.env.example` |
+| `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | OpenAI; see `.env.example` |
+| `DEEPSEEK_API_KEY`, `GROQ_API_KEY` (+ optional `*_MODEL`, `*_BASE_URL`) | optional extra providers; skipped when unset |
 | `DODO_API_KEY`, `DODO_WEBHOOK_SECRET`, `DODO_PRODUCT_PLUS`, `DODO_PRODUCT_PRO` | Dodo Payments |
 | `APP_URL` | `https://veloraweb.online` |
 

@@ -26,6 +26,8 @@ export interface CopilotSettings {
   alwaysOnTop: boolean;
   clickThrough: boolean;
   showTranscript: boolean;
+  /** Also transcribe the microphone in live sessions. */
+  transcribeMicrophone: boolean;
   compact: boolean;
 }
 

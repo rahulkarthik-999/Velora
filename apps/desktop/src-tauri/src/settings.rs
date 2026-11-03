@@ -122,6 +122,8 @@ pub struct CopilotSettings {
     /// Mouse clicks pass through the panel to the window behind it.
     pub click_through: bool,
     pub show_transcript: bool,
+    /// Also transcribe the microphone in live sessions, so answers know what you already said.
+    pub transcribe_microphone: bool,
     /// Hides key points, sources and follow-ups to keep only the answer.
     pub compact: bool,
 }
@@ -136,6 +138,7 @@ impl Default for CopilotSettings {
             always_on_top: true,
             click_through: false,
             show_transcript: true,
+            transcribe_microphone: false,
             compact: false,
         }
     }

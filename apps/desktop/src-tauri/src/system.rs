@@ -27,9 +27,31 @@ pub struct SystemInfo {
     pub installed_models: Vec<String>,
 }
 
-/// %LOCALAPPDATA%\Velora\models on Windows.
+/// Matches `identifier` in tauri.conf.json, so models sit with the rest of the app data
+/// and the uninstaller's "delete app data" option removes them too.
+const APP_DATA_FOLDER: &str = "online.veloraweb.desktop";
+
+/// %LOCALAPPDATA%\online.veloraweb.desktop\models on Windows.
 pub fn models_dir() -> PathBuf {
-    dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join("Velora").join("models")
+    dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join(APP_DATA_FOLDER).join("models")
+}
+
+/// Versions before 0.3 kept models in %LOCALAPPDATA%\Velora\models, which is also the
+/// per-user install folder. Moves them once so they never live inside the install directory.
+pub fn migrate_models_dir() {
+    let Some(local) = dirs::data_local_dir() else { return };
+    let old = local.join("Velora").join("models");
+    let new = models_dir();
+    if !old.is_dir() || new.exists() {
+        return;
+    }
+    if let Some(parent) = new.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::rename(&old, &new) {
+        Ok(()) => log::info!("Moved speech models to {}", new.display()),
+        Err(e) => log::warn!("Could not move speech models from {}: {e}; they will be downloaded again", old.display()),
+    }
 }
 
 pub fn recommended_model(total_memory_mb: u64) -> &'static str {

@@ -35,7 +35,10 @@ export async function getDesktopRelease(): Promise<DesktopRelease | null> {
     const releases = (await res.json()) as GithubRelease[];
     for (const release of releases) {
       if (release.draft || release.prerelease) continue;
-      const asset = release.assets.find((a) => /-setup\.exe$/i.test(a.name));
+      // Prefer the stable public name; older releases only have the versioned file.
+      const asset =
+        release.assets.find((a) => a.name === 'Velora-Setup.exe') ??
+        release.assets.find((a) => /-setup\.exe$/i.test(a.name));
       if (asset) {
         return {
           url: asset.browser_download_url,

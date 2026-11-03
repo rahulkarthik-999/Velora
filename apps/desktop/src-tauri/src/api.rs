@@ -27,6 +27,7 @@ impl From<ApiError> for AppError {
     fn from(e: ApiError) -> Self {
         match e {
             ApiError::Unauthorized => AppError::Internal("Your session has ended. Connect your account again on the Account page.".into()),
+            // Sign-in failures carry their own explanation (wrong password, Google account...).
             ApiError::Status(_, msg) => AppError::Internal(msg),
             ApiError::Network(msg) => AppError::Internal(msg),
         }
@@ -67,6 +68,10 @@ impl Api {
         match status {
             200..=299 => serde_json::from_str(&body)
                 .map_err(|e| ApiError::Status(status, format!("Unexpected response from Velora ({e})"))),
+            // A 401 with a message is a failed sign-in, not an expired session.
+            401 if serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| v["error"].as_str().map(|e| e != "Unauthorized")).unwrap_or(false) => {
+                Err(ApiError::Status(status, error_message(status, &body)))
+            }
             401 => Err(ApiError::Unauthorized),
             _ => Err(ApiError::Status(status, error_message(status, &body))),
         }

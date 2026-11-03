@@ -1,0 +1,89 @@
+name: Desktop release (Windows)
+
+# Builds the NSIS installer and, for a desktop-v* tag, publishes it as a GitHub release.
+# The release is created as a draft, every file is uploaded, and only then is it
+# published, so a failed build or upload never leaves a half-finished public release.
+
+on:
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Fetch pinned whisper.cpp source (checksum verified)
+        run: ./scripts/fetch-whisper.ps1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check the tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          $version = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $tag = '${{ github.ref_name }}'
+          if ($tag -ne "desktop-v$version") { throw "Tag $tag does not match app version $version" }
+
+      - name: Test
+        working-directory: apps/desktop
+        run: |
+          pnpm type-check
+          pnpm test
+          cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build installer
+        working-directory: apps/desktop
+        run: pnpm release:windows
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Velora-Setup
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/Velora-Setup.exe
+            apps/desktop/src-tauri/target/release/bundle/nsis/Velora-Setup.exe.sha256
+            apps/desktop/src-tauri/target/release/bundle/nsis/Velora_*_x64-setup.exe
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          # A release already published (for example from a locally tested build) is left untouched.
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) { Write-Host "Release $tag already exists; build verified, nothing uploaded."; exit 0 }
+          $dir = 'apps/desktop/src-tauri/target/release/bundle/nsis'
+          $sha = (Get-Content "$dir/Velora-Setup.exe.sha256").Split(' ')[0]
+          $notes = "Velora for Windows $($tag -replace '^desktop-v','').`n`nDownload **Velora-Setup.exe** and run it. SHA-256: ``$sha``"
+          gh release create $tag --draft --verify-tag --title "Velora for Windows $($tag -replace '^desktop-v','')" --notes $notes `
+            "$dir/Velora-Setup.exe" "$dir/Velora-Setup.exe.sha256" (Get-Item "$dir/Velora_*_x64-setup.exe").FullName
+          gh release edit $tag --draft=false

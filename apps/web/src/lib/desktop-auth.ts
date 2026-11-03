@@ -63,6 +63,13 @@ export async function getDesktopCaller(req: NextRequest): Promise<DesktopCaller 
   return { userId: device.userId, deviceId: device.id };
 }
 
+/** Creates a signed-in device for a user and returns its bearer token (shown once). */
+export async function issueDeviceToken(userId: string, deviceName: string): Promise<{ token: string; deviceId: string }> {
+  const token = newDeviceToken();
+  const device = await prisma.device.create({ data: { userId, name: deviceName, tokenHash: sha256(token) } });
+  return { token, deviceId: device.id };
+}
+
 export function clientIp(req: NextRequest): string {
   return req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
 }

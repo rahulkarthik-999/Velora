@@ -16,6 +16,8 @@
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "5.2.5",
+    "@fontsource/instrument-serif": "5.2.5",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-dialog": "^2.8.4",
     "@tauri-apps/plugin-log": "^2.10.1",

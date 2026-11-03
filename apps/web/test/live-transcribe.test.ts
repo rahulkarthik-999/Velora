@@ -3,12 +3,26 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/db', () => ({ default: {} }));
 vi.mock('@/lib/desktop-auth', () => ({ getDesktopCaller: vi.fn(async () => ({ userId: 'u1' })) }));
-const { usage, recordTranscription } = vi.hoisted(() => ({
-  usage: { tier: 'FREE', monthlyAICredits: 50, creditsUsed: 0, creditsRemaining: 50, periodStart: new Date() },
-  recordTranscription: vi.fn(async (..._args: unknown[]) => {}),
+const billing = vi.hoisted(() => ({
+  ent: { active: true, plan: { id: 'PRO_MONTHLY', modelTier: 'PRO' } as { id: string; modelTier: string }, remaining: { aiCredits: 50 } },
+  reserveUsage: vi.fn(async (..._args: unknown[]) => 'r1'),
+  settleUsage: vi.fn(async (..._args: unknown[]) => {}),
+  releaseUsage: vi.fn(async (..._args: unknown[]) => {}),
+  exhausted: false,
 }));
-vi.mock('@/lib/usage', () => ({ getUsageSummary: vi.fn(async () => usage) }));
-vi.mock('@/lib/ai/ledger', () => ({ recordTranscription }));
+vi.mock('@/lib/billing/entitlements', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/billing/entitlements')>('@/lib/billing/entitlements');
+  return {
+    QuotaError: actual.QuotaError,
+    getEntitlement: vi.fn(async () => billing.ent),
+    reserveUsage: vi.fn(async (...args: unknown[]) => {
+      if (billing.exhausted) throw new actual.QuotaError('out of credits', 402, 'credits');
+      return billing.reserveUsage(...args);
+    }),
+    settleUsage: billing.settleUsage,
+    releaseUsage: billing.releaseUsage,
+  };
+});
 
 const { transcribeModel, transcriptionCostUsd, wavDurationSec } = await import('@/lib/live');
 const { POST } = await import('@/app/api/live/transcribe/route');
@@ -62,8 +76,10 @@ describe('transcription model and cost', () => {
 describe('POST /api/live/transcribe', () => {
   beforeEach(() => {
     vi.stubEnv('AI_API_KEY', 'sk-test');
-    usage.creditsRemaining = 50;
-    recordTranscription.mockClear();
+    billing.exhausted = false;
+    billing.reserveUsage.mockClear();
+    billing.settleUsage.mockClear();
+    billing.releaseUsage.mockClear();
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -81,9 +97,12 @@ describe('POST /api/live/transcribe', () => {
     expect(url).toBe('https://api.openai.com/v1/audio/transcriptions');
     expect((init.body as FormData).get('model')).toBe('gpt-4o-mini-transcribe');
 
-    const rec = recordTranscription.mock.calls[0][0] as Record<string, unknown>;
-    expect(rec).toMatchObject({ userId: 'u1', model: 'gpt-4o-mini-transcribe', inputTokens: 40, outputTokens: 6 });
-    expect(rec.audioSec as number).toBeCloseTo(3, 3);
+    const reserved = billing.reserveUsage.mock.calls[0][0] as Record<string, unknown>;
+    expect(reserved).toMatchObject({ userId: 'u1', kind: 'transcription', endpoint: 'live-transcribe' });
+    expect(reserved.audioSeconds as number).toBeCloseTo(3, 3);
+    const [id, rec] = billing.settleUsage.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    expect(id).toBe('r1');
+    expect(rec).toMatchObject({ provider: 'openai', model: 'gpt-4o-mini-transcribe', inputTokens: 40, outputTokens: 6 });
     expect(rec.estimatedCostUsd as number).toBeCloseTo(0.00015, 9);
     expect(JSON.stringify(rec)).not.toContain('Tell me');
   });
@@ -93,7 +112,8 @@ describe('POST /api/live/transcribe', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('slow down', { status: 429 })));
     const res = await POST(clip());
     expect(res.status).toBe(503);
-    expect(recordTranscription).toHaveBeenCalledWith(expect.objectContaining({ errorCode: 'rate_limited', estimatedCostUsd: 0 }));
+    expect(billing.releaseUsage).toHaveBeenCalledWith('r1', 'rate_limited', expect.objectContaining({ provider: 'openai' }));
+    expect(billing.settleUsage).not.toHaveBeenCalled();
   });
 
   it('answers 502 on a rejected request, which the app does not retry', async () => {
@@ -102,8 +122,8 @@ describe('POST /api/live/transcribe', () => {
     expect((await POST(clip())).status).toBe(502);
   });
 
-  it('refuses without credits and without calling OpenAI', async () => {
-    usage.creditsRemaining = 0;
+  it('refuses when the monthly minutes are used up, without calling OpenAI', async () => {
+    billing.exhausted = true;
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
     expect((await POST(clip())).status).toBe(402);

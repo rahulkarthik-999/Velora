@@ -3,9 +3,9 @@ import { z } from 'zod';
 import { checkRateLimit, rateLimitError, serverError, unauthorized } from '@/lib/api-utils';
 import { getDesktopCaller } from '@/lib/desktop-auth';
 import { AIProviderError, getAIProvider } from '@/lib/ai/provider';
-import { recordAIFailure, recordAIUsage } from '@/lib/ai/ledger';
 import { MODELS, availableModels, getModel, type TaskClass } from '@/lib/ai/models';
-import { getUsageSummary } from '@/lib/usage';
+import { QuotaError, getEntitlement, releaseUsage, reserveUsage, settleUsage } from '@/lib/billing/entitlements';
+import { creditCost, type Operation } from '@/lib/billing/plans';
 
 // ============================================================================
 // Interview practice: shared request handling and prompts
@@ -177,6 +177,17 @@ type Prompt = { system: string; user: string; schema: string; maxTokens: number;
  * Shared handling for practice endpoints: desktop auth, rate limit, monthly
  * credit check (server-side), AI call, output validation and usage ledger.
  */
+/**
+ * What a request counts as for credits. Picking a more expensive model by hand costs
+ * the same as the heavier operation, so switching models can't stretch a quota.
+ */
+export function operationFor(task: TaskClass, modelId: string | undefined): Operation {
+  if (task === 'vision') return 'screenshot';
+  const model = getModel(modelId);
+  if (model && model.inputPerM >= 1) return 'complex';
+  return task === 'reasoning' ? 'advanced' : 'answer';
+}
+
 export async function handlePractice<I extends z.ZodTypeAny, O extends z.ZodTypeAny>(
   req: NextRequest,
   name: string,
@@ -185,11 +196,10 @@ export async function handlePractice<I extends z.ZodTypeAny, O extends z.ZodType
   buildPrompt: (input: z.infer<I>) => Prompt,
   task: TaskClass | ((input: z.infer<I>) => TaskClass) = 'chat'
 ): Promise<NextResponse> {
-  let callerId: string | undefined;
+  let reservationId: string | undefined;
   try {
     const caller = await getDesktopCaller(req);
     if (!caller) return unauthorized();
-    callerId = caller.userId;
     if (!checkRateLimit(`practice:${caller.userId}`, 20, 60_000)) return rateLimitError();
 
     const body = await req.json().catch(() => null);
@@ -202,14 +212,14 @@ export async function handlePractice<I extends z.ZodTypeAny, O extends z.ZodType
       return NextResponse.json({ error: 'Unknown model. GET /api/ai/models lists the models you can use.' }, { status: 400 });
     }
 
-    const usage = await getUsageSummary(caller.userId);
-    if (usage.creditsRemaining < 1) {
+    const entitlement = await getEntitlement(caller.userId);
+    if (!entitlement.active || !entitlement.plan) {
       return NextResponse.json(
-        { error: `You've used all ${usage.monthlyAICredits} AI credits for this month. Upgrade your plan or wait for next month.` },
+        { error: 'Velora needs an active plan for this. Choose one at veloraweb.online/pricing.', code: 'no_plan' },
         { status: 402 }
       );
     }
-    if (choice.data && !availableModels(usage.tier).some((m) => m.id === choice.data)) {
+    if (choice.data && !availableModels(entitlement.plan.modelTier).some((m) => m.id === choice.data)) {
       return NextResponse.json(
         { error: `${getModel(choice.data)?.label ?? choice.data} isn't available on your plan right now.` },
         { status: 403 }
@@ -219,6 +229,11 @@ export async function handlePractice<I extends z.ZodTypeAny, O extends z.ZodType
     const prompt = buildPrompt(parsed.data);
     const taskClass = typeof task === 'function' ? task(parsed.data) : task;
     const model = choice.data ?? (taskClass === 'chat' ? practiceModel() : undefined);
+    const op = operationFor(taskClass, model);
+    const credits = creditCost(op);
+    const requestId = req.headers.get('x-request-id')?.slice(0, 100) || undefined;
+    reservationId = await reserveUsage({ userId: caller.userId, endpoint: name, kind: op, credits, requestId });
+
     const result = await getAIProvider().generateStructuredOutput<unknown>({
       model,
       task: taskClass,
@@ -232,26 +247,30 @@ export async function handlePractice<I extends z.ZodTypeAny, O extends z.ZodType
       ],
     });
 
-    // Record usage even if the output then fails validation: the tokens were spent.
-    await recordAIUsage({ userId: caller.userId, endpoint: name, creditsUsed: 1 }, result);
-
     const output = outputSchema.safeParse(result.data);
     if (!output.success) {
       console.error(`[practice:${name}] invalid AI output`, output.error.issues.slice(0, 3));
+      // Our failure, not the customer's: give the credits back but keep the cost for tracking.
+      await releaseUsage(reservationId, 'invalid_output', result);
       return NextResponse.json({ error: 'The AI returned an unexpected answer. Please try again.' }, { status: 502 });
     }
+    await settleUsage(reservationId, result);
 
     return NextResponse.json({
       result: output.data,
       model: result.model,
       provider: result.provider,
       promptVersion: PROMPT_VERSION,
-      creditsRemaining: usage.creditsRemaining - 1,
+      creditsUsed: credits,
+      creditsRemaining: Math.max(0, (entitlement.remaining?.aiCredits ?? 0) - credits),
     });
   } catch (error) {
+    if (error instanceof QuotaError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
     if (error instanceof AIProviderError) {
       console.error(`[practice:${name}] AI error`, error.code, error.statusCode, error.provider, error.model);
-      if (callerId) await recordAIFailure({ userId: callerId, endpoint: name }, error);
+      if (reservationId) await releaseUsage(reservationId, error.code ?? 'ai_error', error);
       const status = error.statusCode === 408 ? 504 : 502;
       return NextResponse.json({ error: 'The AI service is unavailable right now. Please try again.' }, { status });
     }

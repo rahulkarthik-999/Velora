@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
+import { classifyDbError, dbHost } from '@/lib/db-health';
 import { resolvePublicUrl } from '@/lib/site-url';
 
 export const dynamic = 'force-dynamic';
@@ -17,13 +18,18 @@ function host(url: string | undefined): string | null {
  * configured and reachable, never secret values.
  */
 export async function GET() {
-  let database: { ok: boolean; error?: string } = { ok: true };
+  let database: { ok: boolean; error?: string; problem?: string; host?: string | null } = { ok: true, host: dbHost() };
   try {
     // Touches the tables sign-in needs, so a database without the schema shows up too.
     await prisma.$transaction([prisma.user.count({ take: 1 }), prisma.deviceAuthRequest.count({ take: 1 })]);
   } catch (e) {
-    const err = e as { code?: string; name?: string; errorCode?: string };
-    database = { ok: false, error: err.code || err.errorCode || err.name || 'unknown' };
+    const err = e as { code?: string; name?: string; errorCode?: string; message?: string };
+    database = {
+      ok: false,
+      error: err.code || err.errorCode || err.name || 'unknown',
+      problem: classifyDbError(err.message ?? ''),
+      host: dbHost(),
+    };
   }
 
   const configuredAuthUrl = process.env.NEXTAUTH_URL;

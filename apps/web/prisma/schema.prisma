@@ -62,18 +62,18 @@ model User {
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
-  accounts      Account[]
-  sessions      Session[]
-  profile       UserProfile?
-  tasks         Task[]
-  attachments   TaskAttachment[]
-  storedFiles   StoredFile[]
-  artifacts     TaskArtifact[]
-  usageLedger   UsageLedger[]
-  subscription  Subscription?
-  preferences   UserPreference[]
+  accounts        Account[]
+  sessions        Session[]
+  profile         UserProfile?
+  tasks           Task[]
+  attachments     TaskAttachment[]
+  storedFiles     StoredFile[]
+  artifacts       TaskArtifact[]
+  usageLedger     UsageLedger[]
+  subscription    Subscription?
+  preferences     UserPreference[]
   analyticsEvents AnalyticsEvent[]
-  devices       Device[]
+  devices         Device[]
 
   @@index([email])
 }
@@ -113,12 +113,12 @@ model Device {
 }
 
 model UserProfile {
-  id              String  @id @default(cuid())
-  userId          String  @unique
-  termsAcceptedAt DateTime?
-  privacyAcceptedAt DateTime?
-  notificationsEnabled Boolean @default(false)
-  timezone        String  @default("UTC")
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  termsAcceptedAt      DateTime?
+  privacyAcceptedAt    DateTime?
+  notificationsEnabled Boolean   @default(false)
+  timezone             String    @default("UTC")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -128,24 +128,24 @@ model UserProfile {
 // ============================================================================
 
 model Task {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId              String
-  title               String    @db.VarChar(500)
-  originalGoal        String    @db.Text
-  normalizedObjective String?   @db.Text
+  title               String       @db.VarChar(500)
+  originalGoal        String       @db.Text
+  normalizedObjective String?      @db.Text
   deadline            DateTime?
   priority            TaskPriority @default(MEDIUM)
   status              TaskStatus   @default(DRAFT)
-  completionCriteria  String?   @db.Text
-  context             String?   @db.Text
-  workflowVersion     Int       @default(1)
-  progressPercent     Int       @default(0)
-  finalOutcome        String?   @db.Text
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  completionCriteria  String?      @db.Text
+  context             String?      @db.Text
+  workflowVersion     Int          @default(1)
+  progressPercent     Int          @default(0)
+  finalOutcome        String?      @db.Text
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
   completedAt         DateTime?
 
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   steps       WorkflowStep[]
   artifacts   TaskArtifact[]
   attachments TaskAttachment[]
@@ -182,9 +182,9 @@ model WorkflowStep {
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
-  task      Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  artifact  TaskArtifact?    @relation(fields: [artifactId], references: [id])
-  approvals ApprovalRequest[]
+  task        Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  artifact    TaskArtifact?     @relation(fields: [artifactId], references: [id])
+  approvals   ApprovalRequest[]
   usageLedger UsageLedger[]
 
   @@index([taskId, order])
@@ -281,20 +281,51 @@ model ApprovalRequest {
 // ============================================================================
 
 model Subscription {
-  id                  String             @id @default(cuid())
-  userId              String             @unique
-  tier                SubscriptionTier   @default(FREE)
-  status              SubscriptionStatus @default(ACTIVE)
-  externalId          String?            @unique
-  externalCustomerId  String?
-  currentPeriodStart  DateTime           @default(now())
-  currentPeriodEnd    DateTime?
-  cancelledAt         DateTime?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  id                 String             @id @default(cuid())
+  userId             String             @unique
+  tier               SubscriptionTier   @default(FREE)
+  status             SubscriptionStatus @default(ACTIVE)
+  externalId         String?            @unique
+  externalCustomerId String?
+  currentPeriodStart DateTime           @default(now())
+  currentPeriodEnd   DateTime?
+  cancelledAt        DateTime?
+  /// Desktop copilot plan (see lib/billing/plans.ts); null = no paid plan.
+  plan               String?            @db.VarChar(30)
+  /// month | quarter | year | one_time
+  billingInterval    String?            @db.VarChar(20)
+  /// Monthly allowances reset on this date's day-of-month (UTC).
+  allowanceAnchorAt  DateTime?
+  cancelAtPeriodEnd  Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
-  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  events SubscriptionEvent[]
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events   SubscriptionEvent[]
+  payments Payment[]
+}
+
+/// One Dodo payment (subscription charge or one-time purchase), with refund and dispute state.
+model Payment {
+  id                     String   @id @default(cuid())
+  subscriptionId         String
+  userId                 String
+  externalId             String   @unique
+  externalSubscriptionId String?
+  productId              String?  @db.VarChar(100)
+  plan                   String?  @db.VarChar(30)
+  /// Smallest currency unit, as Dodo reports it.
+  amount                 Int      @default(0)
+  currency               String   @db.VarChar(10)
+  status                 String   @db.VarChar(30)
+  refundedAmount         Int      @default(0)
+  disputed               Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model SubscriptionEvent {
@@ -311,24 +342,31 @@ model SubscriptionEvent {
 }
 
 model UsageLedger {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId          String
-  taskId          String?  @db.Uuid
-  stepId          String?  @db.Uuid
-  provider        String   @db.VarChar(50)
-  model           String   @db.VarChar(100)
-  inputTokens     Int      @default(0)
-  outputTokens    Int      @default(0)
-  creditsUsed     Int      @default(1)
-  estimatedCostUsd Float   @default(0)
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String
+  taskId           String?  @db.Uuid
+  stepId           String?  @db.Uuid
+  provider         String   @db.VarChar(50)
+  model            String   @db.VarChar(100)
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  creditsUsed      Int      @default(1)
+  estimatedCostUsd Float    @default(0)
   // Per-request AI metrics (nullable; older rows have none). Never prompt contents.
-  endpoint        String?  @db.VarChar(50)
-  latencyMs       Int?
-  attempts        Int?
-  fallbackFrom    String?  @db.VarChar(100)
-  status          String?  @db.VarChar(20)
-  errorCode       String?  @db.VarChar(50)
-  createdAt       DateTime @default(now())
+  endpoint         String?  @db.VarChar(50)
+  latencyMs        Int?
+  attempts         Int?
+  fallbackFrom     String?  @db.VarChar(100)
+  status           String?  @db.VarChar(20)
+  errorCode        String?  @db.VarChar(50)
+  /// answer | advanced | screenshot | complex | transcription
+  kind             String?  @db.VarChar(20)
+  audioSeconds     Int?
+  /// Client or server request id: the same request is never charged twice.
+  requestId        String?  @unique @db.VarChar(100)
+  sessionId        String?  @db.VarChar(100)
+  subscriptionId   String?
+  createdAt        DateTime @default(now())
 
   user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   task Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)

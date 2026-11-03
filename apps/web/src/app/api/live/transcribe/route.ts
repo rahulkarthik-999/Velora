@@ -1,30 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit, rateLimitError, serverError, unauthorized } from '@/lib/api-utils';
 import { getDesktopCaller } from '@/lib/desktop-auth';
-import { recordTranscription } from '@/lib/ai/ledger';
+import { QuotaError, releaseUsage, reserveUsage, settleUsage } from '@/lib/billing/entitlements';
 import { MAX_AUDIO_BYTES, TranscribeInput, transcribeModel, transcriptionCostUsd, wavDurationSec } from '@/lib/live';
-import { getUsageSummary } from '@/lib/usage';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 /**
  * Transcribes one short speech clip from a live session with OpenAI
- * gpt-4o-mini-transcribe. Audio is forwarded and never stored. Clips don't
- * use AI credits, but an account with no credits left can't transcribe
- * either. Each clip's duration, cost estimate and latency go to the ledger.
+ * gpt-4o-mini-transcribe. Audio is forwarded and never stored. Each clip's
+ * seconds are reserved against the plan's monthly transcription minutes before
+ * it's sent, and given back if transcription fails.
  */
 export async function POST(req: NextRequest) {
-  let userId: string | undefined;
+  let reservationId: string | undefined;
   const model = transcribeModel();
   let audioSec = 0;
   const started = Date.now();
   const fail = (errorCode: string) =>
-    userId ? recordTranscription({ userId, model, audioSec, latencyMs: Date.now() - started, estimatedCostUsd: 0, errorCode }) : undefined;
+    reservationId ? releaseUsage(reservationId, errorCode, { provider: 'openai', model, latencyMs: Date.now() - started }) : undefined;
   try {
     const caller = await getDesktopCaller(req);
     if (!caller) return unauthorized();
-    userId = caller.userId;
     // A clip arrives after every sentence; allow a fast-talking conversation.
     if (!checkRateLimit(`transcribe:${caller.userId}`, 90, 60_000)) return rateLimitError();
 
@@ -38,13 +36,13 @@ export async function POST(req: NextRequest) {
     }
     audioSec = wavDurationSec(audio);
 
-    const usage = await getUsageSummary(caller.userId);
-    if (usage.creditsRemaining < 1) {
-      return NextResponse.json(
-        { error: `You've used all ${usage.monthlyAICredits} AI credits for this month. Upgrade your plan or wait for next month.` },
-        { status: 402 }
-      );
-    }
+    reservationId = await reserveUsage({
+      userId: caller.userId,
+      endpoint: 'live-transcribe',
+      kind: 'transcription',
+      audioSeconds: audioSec,
+      requestId: req.headers.get('x-request-id')?.slice(0, 100) || undefined,
+    });
 
     const form = new FormData();
     form.append('file', new Blob([audio], { type: 'audio/wav' }), 'clip.wav');
@@ -69,17 +67,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Cloud transcription is unavailable right now.' }, { status: retryable ? 503 : 502 });
     }
     const data = (await res.json()) as { text?: string; usage?: { input_tokens?: number; output_tokens?: number } };
-    await recordTranscription({
-      userId: caller.userId,
+    await settleUsage(reservationId, {
+      provider: 'openai',
       model,
-      audioSec,
       latencyMs: Date.now() - started,
+      attempts: 1,
       estimatedCostUsd: transcriptionCostUsd(audioSec),
       inputTokens: data.usage?.input_tokens,
       outputTokens: data.usage?.output_tokens,
     });
     return NextResponse.json({ text: (data.text || '').trim() });
   } catch (error) {
+    if (error instanceof QuotaError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
     if (error instanceof DOMException && error.name === 'TimeoutError') {
       await fail('timeout');
       return NextResponse.json({ error: 'Cloud transcription timed out.' }, { status: 504 });

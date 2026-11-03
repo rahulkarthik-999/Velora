@@ -39,9 +39,6 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
 
-      - name: Fetch pinned whisper.cpp source (checksum verified)
-        run: ./scripts/fetch-whisper.ps1
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

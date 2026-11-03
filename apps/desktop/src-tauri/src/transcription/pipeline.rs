@@ -1,19 +1,19 @@
-//! Capture -> 16 kHz mono -> VAD segments -> whisper -> stored transcript.
+//! Capture -> 16 kHz mono -> VAD segments -> OpenAI -> stored transcript.
 //!
 //! Threads:
 //! - one capture thread per source (owns the WASAPI stream)
 //! - one processing thread per source (resample, VAD, segmenting)
-//! - one transcription worker owning the single model instance
+//! - a few transcription workers, each sending one clip at a time to the
+//!   Velora API, so a slow request doesn't hold up the next sentence
 //!
 //! Raw audio only ever lives in these bounded in-memory queues and is never
-//! written to disk. With the cloud transcriber, each speech clip is sent to
-//! the Velora API for transcription and then dropped.
+//! written to disk. Only VAD speech segments are sent, never silence, and
+//! each clip is dropped once transcribed.
 
 use std::{
-    path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -22,10 +22,7 @@ use std::{
 use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use serde::Serialize;
 
-use super::{
-    cloud::{self, CloudTranscriber},
-    engine::{TranscribeOptions, WhisperModel},
-};
+use super::cloud::{self, CloudTranscriber};
 use crate::{
     audio::{
         capture::{self, CaptureEvent, RunningCapture, SourceKind},
@@ -36,9 +33,12 @@ use crate::{
     storage::{Db, TranscriptSegment},
 };
 
-/// Speech segments waiting for the model. At most ~15 s each, so this caps
-/// queued audio at a few minutes even if transcription falls far behind.
+/// Speech segments waiting to be sent. At most ~8 s each, so this caps
+/// queued audio at a minute or two even if transcription falls far behind.
 const JOB_QUEUE: usize = 12;
+/// Clips in flight at once. Results are stored with their own timestamps and
+/// the UI orders by time, so finishing out of order is fine.
+const WORKERS: usize = 3;
 const LEVEL_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,21 +61,13 @@ pub struct SourceConfig {
     pub device_id: Option<String>,
 }
 
+/// OpenAI through the Velora API; the app holds no provider key.
 #[derive(Debug, Clone)]
-pub enum TranscriberConfig {
-    /// whisper.cpp on this PC.
-    Local { model_id: String, model_path: PathBuf },
-    /// OpenAI through the Velora API.
-    Cloud { base_url: String, token: String, language: String },
-}
-
-impl TranscriberConfig {
-    pub fn label(&self) -> String {
-        match self {
-            TranscriberConfig::Local { model_id, .. } => model_id.clone(),
-            TranscriberConfig::Cloud { .. } => "OpenAI (cloud)".into(),
-        }
-    }
+pub struct TranscriberConfig {
+    pub base_url: String,
+    pub token: String,
+    /// Two-letter code, or empty to detect it.
+    pub language: String,
 }
 
 #[derive(Debug, Clone)]
@@ -84,7 +76,8 @@ pub struct PipelineConfig {
     pub sources: Vec<SourceConfig>,
     pub transcriber: TranscriberConfig,
     pub vad: VadConfig,
-    pub transcribe: TranscribeOptions,
+    /// Vocabulary hint (job title, technologies) sent with every clip.
+    pub prompt: Option<String>,
     /// Ignore the mic while the interviewer is speaking through the speakers.
     pub echo_guard: bool,
 }
@@ -122,7 +115,7 @@ pub struct Pipeline {
     cfg: PipelineConfig,
     emit: Emit,
     jobs_tx: Sender<Job>,
-    worker: Option<JoinHandle<()>>,
+    workers: Vec<JoinHandle<()>>,
     abort: Arc<AtomicI32>,
     active: Vec<ActiveSource>,
     failed: Vec<SourceKind>,
@@ -140,14 +133,14 @@ impl Pipeline {
         }
         let (jobs_tx, jobs_rx) = bounded::<Job>(JOB_QUEUE);
         let abort = Arc::new(AtomicI32::new(0));
-        let worker = spawn_worker(cfg.clone(), db, jobs_rx, abort.clone(), emit.clone())?;
+        let workers = spawn_workers(cfg.clone(), db, jobs_rx, abort.clone(), emit.clone())?;
 
         let mut pipeline =
             Pipeline {
                 cfg,
                 emit,
                 jobs_tx,
-                worker: Some(worker),
+                workers,
                 abort,
                 active: Vec::new(),
                 failed: Vec::new(),
@@ -200,7 +193,7 @@ impl Pipeline {
     }
 
     /// Stops capture and waits for it to release the devices. Speech already
-    /// captured is still transcribed. The model stays loaded for `resume`.
+    /// captured is still transcribed.
     pub fn pause(&mut self) {
         for src in self.active.drain(..) {
             let dropped = src.capture.dropped_chunks.load(Ordering::Relaxed);
@@ -221,8 +214,8 @@ impl Pipeline {
         self.start_sources(base_ms)
     }
 
-    /// Stops everything and frees the model. With `cancel_pending`, queued and
-    /// in-progress transcription is abandoned instead of finished.
+    /// Stops everything. With `cancel_pending`, queued clips are abandoned
+    /// instead of transcribed.
     pub fn stop(mut self, cancel_pending: bool) {
         self.pause();
         if cancel_pending {
@@ -230,7 +223,7 @@ impl Pipeline {
         }
         let (dead_tx, _) = bounded(0);
         drop(std::mem::replace(&mut self.jobs_tx, dead_tx));
-        if let Some(w) = self.worker.take() {
+        for w in self.workers.drain(..) {
             let _ = w.join();
         }
     }
@@ -322,113 +315,131 @@ fn spawn_processor(
         .map_err(|e| AppError::Internal(format!("Could not start audio processing: {e}")))
 }
 
-fn spawn_worker(
+/// Recent text per source, sent as context with the next clip from it.
+#[derive(Default)]
+struct Context {
+    microphone: String,
+    system_audio: String,
+}
+
+impl Context {
+    fn slot(&mut self, kind: SourceKind) -> &mut String {
+        match kind {
+            SourceKind::Microphone => &mut self.microphone,
+            SourceKind::SystemAudio => &mut self.system_audio,
+        }
+    }
+}
+
+/// Only the end of the context matters to the next clip.
+const CONTEXT_KEEP_CHARS: usize = 600;
+
+fn spawn_workers(
     cfg: PipelineConfig,
     db: Arc<Db>,
     jobs: Receiver<Job>,
     abort: Arc<AtomicI32>,
     emit: Emit,
-) -> AppResult<JoinHandle<()>> {
-    std::thread::Builder::new()
-        .name("transcriber".into())
-        .spawn(move || {
-            let label = cfg.transcriber.label();
-            emit(PipelineEvent::TranscriberLoading { model_id: label.clone() });
-            let started = Instant::now();
-            let mut engine = match &cfg.transcriber {
-                TranscriberConfig::Local { model_path, .. } => match WhisperModel::load(model_path) {
-                    Ok(m) => Engine::Local(m),
-                    Err(e) => {
-                        log::error!("Model load failed: {e}");
-                        emit(PipelineEvent::TranscriberFailed { message: e.to_string() });
-                        // Keep draining so processors never block on a dead worker.
-                        while jobs.recv().is_ok() {}
-                        return;
-                    }
-                },
-                TranscriberConfig::Cloud { base_url, token, language } => Engine::Cloud(CloudTranscriber::new(
-                    base_url,
-                    token.clone(),
-                    language.clone(),
-                    cfg.transcribe.initial_prompt.clone(),
-                )),
-            };
-            let load_ms = started.elapsed().as_millis() as u64;
-            log::info!("Transcriber {label} ready in {load_ms} ms");
-            emit(PipelineEvent::TranscriberReady { model_id: label, load_ms });
-            // Report each distinct cloud error once, not once per sentence.
-            let mut last_cloud_error = String::new();
+) -> AppResult<Vec<JoinHandle<()>>> {
+    let label = cloud::MODEL_LABEL.to_string();
+    emit(PipelineEvent::TranscriberLoading { model_id: label.clone() });
+    let context = Arc::new(Mutex::new(Context::default()));
+    // Report each distinct cloud error once, not once per sentence or worker.
+    let last_error = Arc::new(Mutex::new(String::new()));
 
-            while let Ok(job) = jobs.recv() {
-                if abort.load(Ordering::Relaxed) != 0 {
-                    continue;
-                }
-                let audio_ms = job.segment.end_ms - job.segment.start_ms;
-                let t0 = Instant::now();
-                let results = match &mut engine {
-                    Engine::Local(model) => match model.transcribe(&job.segment.samples, &cfg.transcribe, &abort) {
-                        Ok(r) => r,
-                        Err(e) => {
-                            log::error!("Transcription error: {e}");
-                            continue;
-                        }
-                    },
-                    Engine::Cloud(c) => match c.transcribe(&job.segment.samples, TARGET_RATE) {
+    let mut workers = Vec::with_capacity(WORKERS);
+    for n in 0..WORKERS {
+        let (cfg, db, jobs, abort, emit) = (cfg.clone(), db.clone(), jobs.clone(), abort.clone(), emit.clone());
+        let (context, last_error) = (context.clone(), last_error.clone());
+        let worker = std::thread::Builder::new()
+            .name(format!("transcriber-{n}"))
+            .spawn(move || {
+                let t = &cfg.transcriber;
+                let client = CloudTranscriber::new(&t.base_url, t.token.clone(), t.language.clone(), cfg.prompt.clone());
+                while let Ok(job) = jobs.recv() {
+                    if abort.load(Ordering::Relaxed) != 0 {
+                        continue;
+                    }
+                    let audio_ms = job.segment.end_ms - job.segment.start_ms;
+                    let before = context.lock().expect("context lock").slot(job.source).clone();
+                    let t0 = Instant::now();
+                    let results = match client.transcribe(&job.segment.samples, TARGET_RATE, &before) {
                         Ok(r) => {
-                            last_cloud_error.clear();
+                            last_error.lock().expect("error lock").clear();
                             r
                         }
                         Err(e) => {
                             let message = cloud::describe(&e);
                             log::warn!("Cloud transcription failed: {message}");
-                            if message != last_cloud_error {
+                            let mut last = last_error.lock().expect("error lock");
+                            if *last != message {
                                 emit(PipelineEvent::TranscriberFailed { message: message.clone() });
-                                last_cloud_error = message;
+                                *last = message;
                             }
                             continue;
                         }
-                    },
-                };
-                log::debug!("Transcribed {audio_ms} ms in {} ms", t0.elapsed().as_millis());
-
-                for r in results {
-                    if !is_usable(&r.text, r.no_speech_prob, r.confidence) {
-                        continue;
-                    }
-                    let start_ms = job.segment.start_ms as i64 + r.start_ms.max(0);
-                    let end_ms = (job.segment.start_ms as i64 + r.end_ms).clamp(start_ms, job.segment.end_ms as i64);
-                    let segment = TranscriptSegment {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        session_id: cfg.session_id.clone(),
-                        source: job.source.as_str().into(),
-                        start_ms,
-                        end_ms,
-                        text: r.text,
-                        confidence: Some(r.confidence),
-                        corrected: false,
                     };
-                    if let Err(e) = db.insert_segment(&segment, r.no_speech_prob, crate::now_ms() as i64) {
-                        log::error!("Could not save transcript segment: {e}");
-                    }
-                    emit(PipelineEvent::Segment { segment });
+                    log::debug!("Transcribed {audio_ms} ms in {} ms", t0.elapsed().as_millis());
+                    store_results(&cfg, &db, &emit, &context, &job, results);
                 }
-            }
-            // Model drops here, releasing its memory.
-        })
-        .map_err(|e| AppError::Internal(format!("Could not start transcriber: {e}")))
+            })
+            .map_err(|e| AppError::Internal(format!("Could not start transcriber: {e}")))?;
+        workers.push(worker);
+    }
+    emit(PipelineEvent::TranscriberReady { model_id: label, load_ms: 0 });
+    Ok(workers)
 }
 
-enum Engine {
-    Local(WhisperModel),
-    Cloud(CloudTranscriber),
+fn store_results(
+    cfg: &PipelineConfig,
+    db: &Db,
+    emit: &Emit,
+    context: &Mutex<Context>,
+    job: &Job,
+    results: Vec<cloud::TranscribedText>,
+) {
+    for r in results {
+        if !is_usable(&r.text, r.no_speech_prob, r.confidence) {
+            continue;
+        }
+        let start_ms = job.segment.start_ms as i64 + r.start_ms.max(0);
+        let end_ms = (job.segment.start_ms as i64 + r.end_ms).clamp(start_ms, job.segment.end_ms as i64);
+        remember(&mut context.lock().expect("context lock"), job.source, &r.text);
+        let segment = TranscriptSegment {
+            id: uuid::Uuid::new_v4().to_string(),
+            session_id: cfg.session_id.clone(),
+            source: job.source.as_str().into(),
+            start_ms,
+            end_ms,
+            text: r.text,
+            confidence: Some(r.confidence),
+            corrected: false,
+        };
+        if let Err(e) = db.insert_segment(&segment, r.no_speech_prob, crate::now_ms() as i64) {
+            log::error!("Could not save transcript segment: {e}");
+        }
+        emit(PipelineEvent::Segment { segment });
+    }
+}
+
+fn remember(ctx: &mut Context, source: SourceKind, text: &str) {
+    let slot = ctx.slot(source);
+    if !slot.is_empty() {
+        slot.push(' ');
+    }
+    slot.push_str(text.trim());
+    let extra = slot.chars().count().saturating_sub(CONTEXT_KEEP_CHARS);
+    if extra > 0 {
+        *slot = slot.chars().skip(extra).collect();
+    }
 }
 
 /// Lines with a lower mean token probability are almost always noise.
 const MIN_CONFIDENCE: f32 = 0.4;
-/// Known hallucinations are dropped unless whisper is this sure of them.
+/// Known hallucinations are dropped unless the model is this sure of them.
 const HALLUCINATION_KEEP_CONFIDENCE: f32 = 0.9;
 
-/// Phrases whisper invents from silence or noise (learned from video subtitles).
+/// Phrases speech models invent from silence or noise (learned from video subtitles).
 /// Matched anywhere in the normalised line.
 const HALLUCINATION_PHRASES: &[&str] = &[
     "thanks for watching",
@@ -461,7 +472,7 @@ pub fn is_hallucination(text: &str) -> bool {
 }
 
 /// Filters empty output, non-speech markers, low-confidence noise and
-/// whisper's well-known hallucinated phrases.
+/// the well-known hallucinated phrases.
 pub fn is_usable(text: &str, no_speech_prob: f32, confidence: f32) -> bool {
     let t = text.trim();
     if t.is_empty() || no_speech_prob > 0.8 || confidence < MIN_CONFIDENCE {
@@ -532,99 +543,16 @@ mod tests {
         assert!(is_usable("Okay, how would you design a URL shortener?", 0.1, 0.8));
     }
 
-    /// Real hardware: plays the reference sample through the speakers with both the
-    /// mic and loopback capturing. The mic hears the speakers, so without the echo
-    /// guard it would produce a garbled duplicate. Plays sound out loud.
-    /// VELORA_TEST_MODEL=path\to\model.bin cargo test echo_guard_end_to_end -- --ignored --nocapture
     #[test]
-    #[ignore]
-    fn echo_guard_end_to_end() {
-        let model_path = PathBuf::from(std::env::var("VELORA_TEST_MODEL").expect("set VELORA_TEST_MODEL"));
-        let db = Arc::new(Db::open_in_memory().unwrap());
-        db.upsert_session("echo", "live", 0, None, 0, "active").unwrap();
-        let cfg = PipelineConfig {
-            session_id: "echo".into(),
-            sources: vec![
-                SourceConfig { kind: SourceKind::SystemAudio, device_id: None },
-                SourceConfig { kind: SourceKind::Microphone, device_id: None },
-            ],
-            transcriber: TranscriberConfig::Local { model_id: "test".into(), model_path },
-            vad: VadConfig::default(),
-            transcribe: TranscribeOptions::default(),
-            echo_guard: true,
-        };
-        let pipeline = Pipeline::start(cfg, db.clone(), Arc::new(|_| {}), 0).unwrap();
-        play_reference_sample();
-        pipeline.stop(false);
-
-        let segments = db.segments("echo").unwrap();
-        for s in &segments {
-            println!("{}: {}", s.source, s.text);
-        }
-        let system: String = segments.iter().filter(|s| s.source == "systemAudio").map(|s| s.text.as_str()).collect();
-        assert!(system.to_lowercase().contains("country"), "system audio missing: {system:?}");
-        let mic: Vec<_> = segments.iter().filter(|s| s.source == "microphone").collect();
-        assert!(mic.is_empty(), "echo leaked through the mic: {mic:?}");
-    }
-
-    fn play_reference_sample() {
-        let wav = std::env::temp_dir().join("velora-e2e.wav");
-        std::fs::write(&wav, super::super::SELF_TEST_WAV).unwrap();
-        std::thread::sleep(Duration::from_millis(500));
-        let status = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &format!("(New-Object Media.SoundPlayer '{}').PlaySync()", wav.display())])
-            .status()
-            .unwrap();
-        assert!(status.success());
-        std::thread::sleep(Duration::from_millis(1_500));
-    }
-
-    /// Real hardware: plays the reference sample through the default speakers and
-    /// transcribes it via WASAPI loopback. Plays sound out loud.
-    /// VELORA_TEST_MODEL=path\to\model.bin cargo test loopback -- --ignored --nocapture
-    #[test]
-    #[ignore]
-    fn loopback_end_to_end() {
-        let model_path = PathBuf::from(std::env::var("VELORA_TEST_MODEL").expect("set VELORA_TEST_MODEL"));
-        let db = Arc::new(Db::open_in_memory().unwrap());
-        db.upsert_session("e2e", "live", 0, None, 0, "active").unwrap();
-        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let sink = events.clone();
-        let emit: Emit = Arc::new(move |e| sink.lock().unwrap().push(e));
-        let cfg = PipelineConfig {
-            session_id: "e2e".into(),
-            sources: vec![SourceConfig { kind: SourceKind::SystemAudio, device_id: None }],
-            transcriber: TranscriberConfig::Local { model_id: "test".into(), model_path },
-            vad: VadConfig::default(),
-            transcribe: TranscribeOptions::default(),
-            echo_guard: true,
-        };
-
-        let pipeline = Pipeline::start(cfg, db.clone(), emit, 0).unwrap();
-        assert!(pipeline.is_capturing(SourceKind::SystemAudio));
-
-        let wav = std::env::temp_dir().join("velora-e2e.wav");
-        std::fs::write(&wav, super::super::SELF_TEST_WAV).unwrap();
-        std::thread::sleep(Duration::from_millis(500));
-        let status = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &format!("(New-Object Media.SoundPlayer '{}').PlaySync()", wav.display())])
-            .status()
-            .unwrap();
-        assert!(status.success());
-        std::thread::sleep(Duration::from_millis(1_500));
-
-        let t0 = Instant::now();
-        pipeline.stop(false);
-        println!("stop() returned after {} ms", t0.elapsed().as_millis());
-
-        let text = db.segments("e2e").unwrap().into_iter().map(|s| s.text).collect::<Vec<_>>().join(" ");
-        println!("transcript: {text}");
-        for e in events.lock().unwrap().iter() {
-            if !matches!(e, PipelineEvent::Level { .. }) {
-                println!("event: {e:?}");
-            }
-        }
-        assert!(text.to_lowercase().contains("country"), "unexpected transcript: {text:?}");
+    fn context_keeps_recent_words_per_source() {
+        let mut ctx = Context::default();
+        remember(&mut ctx, SourceKind::SystemAudio, " Tell me about ");
+        remember(&mut ctx, SourceKind::SystemAudio, "your last project.");
+        remember(&mut ctx, SourceKind::Microphone, "Sure.");
+        assert_eq!(ctx.slot(SourceKind::SystemAudio), "Tell me about your last project.");
+        assert_eq!(ctx.slot(SourceKind::Microphone), "Sure.");
+        remember(&mut ctx, SourceKind::SystemAudio, &"x".repeat(1_000));
+        assert_eq!(ctx.slot(SourceKind::SystemAudio).chars().count(), CONTEXT_KEEP_CHARS);
     }
 
     #[test]
@@ -632,9 +560,9 @@ mod tests {
         let cfg = PipelineConfig {
             session_id: "s".into(),
             sources: vec![],
-            transcriber: TranscriberConfig::Local { model_id: "m".into(), model_path: PathBuf::from("missing.bin") },
+            transcriber: TranscriberConfig { base_url: "http://127.0.0.1:9".into(), token: "t".into(), language: "en".into() },
             vad: VadConfig::default(),
-            transcribe: TranscribeOptions::default(),
+            prompt: None,
             echo_guard: true,
         };
         let db = Arc::new(Db::open_in_memory().unwrap());

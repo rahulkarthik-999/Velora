@@ -92,3 +92,41 @@ export async function recordAIFailure(rec: Omit<UsageRecord, 'creditsUsed'>, err
     }
   ).catch((e) => console.error('[AI] failed to record AI failure', (e as Error).message));
 }
+
+export interface TranscriptionRecord {
+  userId: string;
+  model: string;
+  /** Seconds of audio sent. */
+  audioSec: number;
+  latencyMs: number;
+  estimatedCostUsd: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  /** Set when the clip failed. */
+  errorCode?: string;
+}
+
+/**
+ * One live transcription clip. Clips use no AI credits; the row tracks
+ * provider, model, minutes (as cost), latency and failures per user.
+ */
+export async function recordTranscription(rec: TranscriptionRecord): Promise<void> {
+  await write(
+    {
+      userId: rec.userId,
+      provider: 'openai',
+      model: rec.model.slice(0, 100),
+      inputTokens: rec.inputTokens ?? 0,
+      outputTokens: rec.outputTokens ?? 0,
+      creditsUsed: 0,
+      estimatedCostUsd: rec.errorCode ? 0 : rec.estimatedCostUsd,
+    },
+    {
+      endpoint: 'live-transcribe',
+      latencyMs: rec.latencyMs,
+      attempts: 1,
+      status: rec.errorCode ? 'error' : 'ok',
+      errorCode: rec.errorCode ?? null,
+    }
+  ).catch((e) => console.error('[AI] failed to record transcription usage', (e as Error).message));
+}

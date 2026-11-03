@@ -23,40 +23,34 @@ starts a session, and its state is always shown.
 | System-audio capture via WASAPI loopback, output-device selection | Working, tested on hardware | `audio/capture.rs` |
 | Device errors and disconnections flagged; indicators switch to "device error" | Implemented; not yet tested by unplugging a device | `audio/capture.rs`, `commands.rs` |
 | Downmix + 16 kHz resampling with anti-alias low-pass | Working | `audio/dsp.rs` |
-| Local VAD (energy, adaptive noise floor), pre-roll, 650 ms end-of-speech, 15 s cap with 300 ms overlap, blip rejection | Working | `audio/vad.rs` |
+| Local VAD (energy, adaptive noise floor), pre-roll, 650 ms end-of-speech, 8 s cap with 300 ms overlap, blip rejection | Working | `audio/vad.rs` |
 | Bounded queues everywhere (capture → processing → transcription); counted drops | Working | `transcription/pipeline.rs` |
-| whisper.cpp 1.8.3, CPU, built from a pinned, checksum-verified source via a C shim | Working | `native/velora_whisper.c`, `build.rs`, `scripts/fetch-whisper.ps1` |
-| One model instance per session, freed when the session ends | Working | `transcription/pipeline.rs` |
-| Model manifest pinned to an exact upstream commit, with size + SHA-256 | Working | `resources/model-manifest.json` |
-| Download: disk-space check, HTTPS only, progress, cancel, SHA-256, atomic rename | Working | `transcription/models.rs` |
-| Self-test after download (must transcribe the reference sample) with measured RTF | Working | `transcription/models.rs` |
-| Low-memory fallback to `base.en` (< 1.5 GB free) | Working | `models::select` |
-| AVX2 check before loading (clear error instead of a crash) | Working | `transcription/engine.rs` |
-| Confidence (mean token probability) and no-speech filtering | Working | `engine.rs`, `pipeline.rs` |
+| Transcription: OpenAI `gpt-4o-mini-transcribe` through the Velora API (`/api/live/transcribe`), one speech clip at a time, 3 clips in flight, recent words sent as context, one retry on network/429/5xx | Working (unit-tested; not yet re-measured on hardware) | `transcription/cloud.rs`, `transcription/pipeline.rs` |
+| Hallucination and non-speech filtering | Working | `pipeline.rs` |
+| Per-clip usage on the server: minutes (as cost), latency, failures | Working | web `api/live/transcribe`, `lib/ai/ledger.ts` |
 | SQLite: migrations, foreign keys, WAL, integrity check, FTS5 transcript index | Working | `src-tauri/src/storage.rs` |
 | Transcript persistence, editing (marked as corrected), session history, delete | Working | `storage.rs`, `SessionsPage.tsx` |
 | Copilot: live transcript with source labels, timestamps, low-confidence marks, audio level meters | Working | `CopilotWindow.tsx`, `TranscriptView.tsx` |
 | Static C runtime: the portable exe needs no VC++ redistributable | Working | `.cargo/config.toml` |
 
-Raw audio exists only in bounded in-memory queues. It is never written to disk
-or sent over the network; only transcript text is stored, locally.
+Raw audio exists only in bounded in-memory queues and is never written to disk.
+Speech clips (never silence) are sent to OpenAI through the Velora API and not
+stored; only transcript text is stored, locally. The on-device whisper.cpp
+engine was removed: transcription is OpenAI only.
 
 ### Changes from the spec
 
-- **Q5_0 → Q5_1.** Upstream whisper.cpp publishes no Q5_0 builds of `small.en`/`base.en`, only Q5_1 and Q8_0. Q5_1 is the closest pinned artifact.
 - **VAD is energy-based, not Silero.** Silero would add ONNX Runtime. The VAD scores frames against an adaptive noise floor, and the 0.55 threshold applies to that score. Tune it on real interview recordings.
-- **No whisper-rs.** Its bundled bindings are generated on Linux and have the wrong struct layouts on Windows. Generating them needs libclang (LLVM), which this machine doesn't have. A C shim avoids both.
 
 ### Tests
 
-- Rust: 50 unit tests, plus 2 hardware tests (`cargo test -- --ignored`, needs `VELORA_TEST_MODEL`)
+- Rust: 70 unit tests (`cargo test`)
 - Frontend: 24 Vitest tests
 - Measured results: `docs/hardware-benchmarks.md`
 
 ### Build
 
 ```powershell
-.\scripts\fetch-whisper.ps1     # once per checkout
 cd apps\desktop
 pnpm tauri build
 ```
@@ -78,7 +72,7 @@ live interview, and its windows stay visible in screen shares, screenshots and t
 | Resume import (PDF, DOCX, TXT) parsed locally | `src-tauri/src/documents.rs` |
 | AI profile extraction into editable, searchable facts (FTS5 with Porter stemming) | `prep.rs`, `storage/prep.rs` |
 | Jobs with descriptions (paste or import a file) | `JobsPage.tsx` |
-| Practice: AI questions for the role, answer by voice (mic, local transcription) or typing, scored feedback with a model answer grounded in the 4 most relevant facts | `PracticePage.tsx`; web `api/practice/*` |
+| Practice: AI questions for the role, answer by voice (mic, OpenAI transcription) or typing, scored feedback with a model answer grounded in the 4 most relevant facts | `PracticePage.tsx`; web `api/practice/*` |
 | Custom instructions and model-answer style | AI Settings |
 | Usage and plan from the account; monthly credits enforced on the server | `UsagePage`; web `lib/usage.ts` |
 | Record Session: transcribes system audio only (mic never opened) for later review | `LiveInterviewPage.tsx` |

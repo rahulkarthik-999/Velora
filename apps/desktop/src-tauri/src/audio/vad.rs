@@ -32,7 +32,7 @@ pub struct VadConfig {
 
 impl Default for VadConfig {
     fn default() -> Self {
-        Self { speech_threshold: 0.55, silence_duration_ms: 650, minimum_speech_ms: 250, maximum_segment_ms: 15_000 }
+        Self { speech_threshold: 0.55, silence_duration_ms: 650, minimum_speech_ms: 250, maximum_segment_ms: 8_000 }
     }
 }
 
@@ -270,7 +270,7 @@ mod tests {
         let out = run(&[noise(500, 0.005, &mut seed), tone(40_000, 0.3), noise(1_500, 0.005, &mut seed)]);
         assert!(out.len() >= 3);
         for s in &out {
-            assert!(s.samples.len() <= ms_to_samples(15_000) + FRAME);
+            assert!(s.samples.len() <= ms_to_samples(8_000) + FRAME);
         }
         // Consecutive segments overlap rather than leaving a gap.
         assert!(out[1].start_ms < out[0].end_ms);

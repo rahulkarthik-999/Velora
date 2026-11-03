@@ -7,11 +7,9 @@ Velora's desktop app is a Tauri 2 app packaged as an NSIS installer, published a
 ## Build locally
 
 Prerequisites (once per machine): Rust (stable, MSVC), Visual Studio Build Tools with
-the C++ workload, CMake, Node 20, pnpm.
+the C++ workload, Node 20, pnpm.
 
 ```powershell
-# from the repo root, once per checkout: pinned whisper.cpp source, checksum-verified
-./scripts/fetch-whisper.ps1
 pnpm install
 
 # from apps/desktop
@@ -37,7 +35,7 @@ or the installer is missing, so a stale file is never published.
 
 `.github/workflows/desktop-release.yml` runs on a `desktop-v*` tag (or manually):
 
-1. Fetches whisper.cpp, installs dependencies, checks the tag equals the app version.
+1. Installs dependencies and checks the tag equals the app version.
 2. Runs the type-check, frontend tests and Rust tests.
 3. Builds the installer and uploads it as a workflow artifact.
 4. For a tag: creates a **draft** release with all files, then publishes it. A failure at
@@ -69,9 +67,8 @@ because an older app can't open a database upgraded by a newer one.
   updates shortcuts).
 - **User data is never in the install folder:**
   - settings and database: `%APPDATA%\online.veloraweb.desktop`
-  - logs and speech models: `%LOCALAPPDATA%\online.veloraweb.desktop`
+  - logs: `%LOCALAPPDATA%\online.veloraweb.desktop`
   - sign-in token: Windows Credential Manager (`Velora`)
-  0.3.0 moves speech models from the old `%LOCALAPPDATA%\Velora\models` automatically.
 - **Uninstall** removes the app, shortcuts and registry entries only. App data is deleted
   only if the user ticks "Delete the application data" in the uninstaller.
 - **Graphics:** `src-tauri/installer/header.bmp` and `sidebar.bmp`, generated from the app

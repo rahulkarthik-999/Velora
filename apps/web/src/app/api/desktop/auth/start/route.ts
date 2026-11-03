@@ -10,6 +10,7 @@ import {
   newUserCode,
   sha256,
 } from '@/lib/desktop-auth';
+import { resolvePublicUrl } from '@/lib/site-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
             expiresAt: new Date(Date.now() + DEVICE_AUTH_TTL_MS),
           },
         });
-        const origin = process.env.APP_URL || req.nextUrl.origin;
+        const origin = resolvePublicUrl(process.env.APP_URL, req.nextUrl.origin) ?? req.nextUrl.origin;
         return success({
           deviceCode,
           userCode,

@@ -5,9 +5,32 @@ import { block } from '@/lib/practice';
 // Live interview copilot: answer suggestions and cloud transcription
 // ============================================================================
 
-/** Speech-to-text model for live sessions; override with LIVE_TRANSCRIBE_MODEL. */
+/**
+ * Speech-to-text model for live sessions: OpenAI gpt-4o-mini-transcribe, the
+ * cheapest OpenAI transcription model. LIVE_TRANSCRIBE_MODEL may only pin a
+ * dated snapshot of it (e.g. gpt-4o-mini-transcribe-2025-12-15).
+ */
 export function transcribeModel(): string {
-  return process.env.LIVE_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe';
+  const pinned = process.env.LIVE_TRANSCRIBE_MODEL?.trim();
+  return pinned && /^gpt-4o-mini-transcribe(-\d{4}-\d{2}-\d{2})?$/.test(pinned) ? pinned : 'gpt-4o-mini-transcribe';
+}
+
+/**
+ * Estimated price: about $0.003 per minute of audio for gpt-4o-mini-transcribe
+ * (OpenAI bills audio tokens; this per-minute figure must be confirmed on
+ * OpenAI's pricing page).
+ */
+export const TRANSCRIBE_USD_PER_MINUTE = 0.003;
+
+/** Seconds of audio in a PCM WAV, from its header byte rate; 0 if unreadable. */
+export function wavDurationSec(wav: Buffer): number {
+  if (wav.length < 44 || wav.subarray(0, 4).toString('ascii') !== 'RIFF') return 0;
+  const byteRate = wav.readUInt32LE(28);
+  return byteRate > 0 ? (wav.length - 44) / byteRate : 0;
+}
+
+export function transcriptionCostUsd(seconds: number): number {
+  return Math.round((seconds / 60) * TRANSCRIBE_USD_PER_MINUTE * 1_000_000) / 1_000_000;
 }
 
 /** Largest audio clip accepted: ~30 s of 16 kHz mono 16-bit WAV. */

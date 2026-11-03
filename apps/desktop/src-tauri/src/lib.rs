@@ -12,10 +12,7 @@ mod shortcuts;
 mod storage;
 mod system;
 
-use std::{
-    path::PathBuf,
-    sync::{atomic::AtomicBool, Arc, Mutex},
-};
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
@@ -31,9 +28,6 @@ pub struct AppState {
     pub session: Mutex<Session>,
     pub pipeline: Mutex<Option<Pipeline>>,
     pub db: Arc<Db>,
-    pub models_dir: PathBuf,
-    /// Model currently downloading, with its cancel flag.
-    pub installing: Mutex<Option<(String, Arc<AtomicBool>)>>,
     /// Cancel flag for a desktop sign-in that is waiting for approval.
     pub linking: Mutex<Option<Arc<AtomicBool>>>,
     /// Practice question whose answer is being recorded.
@@ -81,8 +75,6 @@ pub fn run() {
                 session: Mutex::new(Session::default()),
                 pipeline: Mutex::new(None),
                 db: Arc::new(db),
-                models_dir: system::models_dir(),
-                installing: Mutex::new(None),
                 linking: Mutex::new(None),
                 recording_item: Mutex::new(None),
                 answering: AtomicBool::new(false),
@@ -116,10 +108,6 @@ pub fn run() {
             commands::update_settings,
             commands::get_system_info,
             commands::list_audio_devices,
-            commands::get_models,
-            commands::install_model,
-            commands::cancel_model_install,
-            commands::benchmark_model,
             commands::get_session,
             commands::start_session,
             commands::pause_session,

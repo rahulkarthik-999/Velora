@@ -1,6 +1,5 @@
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::Arc;
 
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{
@@ -8,13 +7,11 @@ use crate::{
     error::{AppError, AppResult},
     now_ms,
     session::{CaptureState, CaptureStatus, Session, SessionMode, SessionSnapshot},
-    settings::{Settings, TranscriptionEngine},
+    settings::Settings,
     shortcuts,
     storage::{SessionRecord, TranscriptSegment},
     system::{self, SystemInfo},
     transcription::{
-        engine::{self, TranscribeOptions},
-        models::{self, InstallProgress, ModelStatus},
         cloud,
         pipeline::{Emit, Pipeline, PipelineConfig, PipelineEvent, SourceConfig, TranscriberConfig},
     },
@@ -24,7 +21,6 @@ use crate::{
 pub const SESSION_CHANGED: &str = "session-changed";
 pub const SETTINGS_CHANGED: &str = "settings-changed";
 pub const PIPELINE_EVENT: &str = "pipeline-event";
-pub const MODEL_INSTALL: &str = "model-install";
 /// A short message for the user, shown as a toast in every window.
 pub const APP_NOTICE: &str = "app-notice";
 
@@ -71,94 +67,6 @@ pub async fn list_audio_devices() -> AppResult<AudioDevices> {
     tauri::async_runtime::spawn_blocking(capture::list_devices)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?
-}
-
-// ---------------------------------------------------------------------------
-// Speech models
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelsOverview {
-    pub models: Vec<ModelStatus>,
-    pub cpu_supported: bool,
-    pub installing: Option<String>,
-    pub engine_info: String,
-}
-
-#[tauri::command]
-pub fn get_models(state: State<'_, AppState>) -> ModelsOverview {
-    ModelsOverview {
-        models: models::statuses(&state.models_dir),
-        cpu_supported: engine::cpu_supported(),
-        installing: state.installing.lock().expect("lock").as_ref().map(|(id, _)| id.clone()),
-        engine_info: engine::system_info(),
-    }
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "status")]
-enum InstallEvent {
-    Progress { model_id: String, progress: InstallProgress },
-    Done { model_id: String, model: ModelStatus },
-    Failed { model_id: String, message: String },
-}
-
-/// Starts a background download. Progress arrives as `model-install` events.
-#[tauri::command]
-pub fn install_model(app: AppHandle, state: State<'_, AppState>, model_id: String) -> AppResult<()> {
-    let spec = models::find(&model_id)?;
-    if !engine::cpu_supported() {
-        return Err(AppError::Internal("This processor doesn't support AVX2, which local transcription needs.".into()));
-    }
-    let cancel = Arc::new(AtomicBool::new(false));
-    {
-        let mut installing = state.installing.lock().expect("lock");
-        if installing.is_some() {
-            return Err(AppError::Internal("Another model is already downloading.".into()));
-        }
-        *installing = Some((model_id.clone(), cancel.clone()));
-    }
-
-    let dir = state.models_dir.clone();
-    std::thread::spawn(move || {
-        let id = spec.id.clone();
-        let result = models::install(&dir, &spec, &cancel, |progress| {
-            let _ = app.emit(MODEL_INSTALL, InstallEvent::Progress { model_id: id.clone(), progress });
-        });
-        let event = match result {
-            Ok(model) => InstallEvent::Done { model_id: id.clone(), model },
-            Err(e) => {
-                log::error!("Model install failed: {e}");
-                InstallEvent::Failed { model_id: id.clone(), message: e.to_string() }
-            }
-        };
-        *app.state::<AppState>().installing.lock().expect("lock") = None;
-        let _ = app.emit(MODEL_INSTALL, event);
-    });
-    Ok(())
-}
-
-/// Re-measures a model's speed on this PC with the current decoding settings.
-#[tauri::command]
-pub async fn benchmark_model(app: AppHandle, model_id: String) -> AppResult<ModelStatus> {
-    let spec = models::find(&model_id)?;
-    blocking(move || {
-        let state = app.state::<AppState>();
-        let busy = state.pipeline.lock().expect("pipeline lock poisoned").is_some();
-        if busy {
-            return Err(AppError::Internal("End the session before testing speed; it would slow both down.".into()));
-        }
-        models::retest(&state.models_dir, &spec)
-    })
-    .await
-}
-
-#[tauri::command]
-pub fn cancel_model_install(state: State<'_, AppState>) {
-    if let Some((_, cancel)) = state.installing.lock().expect("lock").as_ref() {
-        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -229,26 +137,13 @@ pub fn session_start(app: &AppHandle, mode: SessionMode) -> AppResult<SessionSna
     let mut session = state.session.lock().expect("session lock poisoned");
     let settings = state.settings.get();
 
-    let transcriber = match settings.transcription.engine {
-        TranscriptionEngine::Cloud => TranscriberConfig::Cloud {
-            base_url: settings.api_base_url.clone(),
-            token: cloud::check_signed_in()?,
-            language: settings.transcription.language.clone(),
-        },
-        TranscriptionEngine::Local => {
-            let installed: Vec<_> = models::statuses(&state.models_dir).into_iter().filter(|m| m.installed).collect();
-            let available_mb = system::collect("").map(|s| s.available_memory_mb).unwrap_or(u64::MAX);
-            let (model, notice) = models::select(&installed, &settings.transcription.model_id, available_mb)?;
-            if let Some(n) = &notice {
-                log::warn!("{n}");
-                let _ = app.emit(PIPELINE_EVENT, PipelineEvent::TranscriberFailed { message: n.clone() });
-            }
-            let model_path = models::installed_path(&state.models_dir, &model)
-                .ok_or_else(|| AppError::Internal("The speech model is no longer installed.".into()))?;
-            TranscriberConfig::Local { model_id: model.id.clone(), model_path }
-        }
+    // Transcription is always OpenAI gpt-4o-mini-transcribe through the Velora API.
+    let transcriber = TranscriberConfig {
+        base_url: settings.api_base_url.clone(),
+        token: cloud::check_signed_in()?,
+        language: settings.transcription.language.clone(),
     };
-    let transcribe = TranscribeOptions { initial_prompt: vocabulary_hint(&state, &settings), ..TranscribeOptions::default() };
+    let prompt = vocabulary_hint(&state, &settings);
 
     // Each session type has one source: a live session transcribes the other
     // side (system audio) and never opens the mic; practice records your mic.
@@ -267,7 +162,7 @@ pub fn session_start(app: &AppHandle, mode: SessionMode) -> AppResult<SessionSna
         sources,
         transcriber,
         vad: Default::default(),
-        transcribe,
+        prompt,
         // Only matters when mic and system audio run together.
         echo_guard: true,
     };

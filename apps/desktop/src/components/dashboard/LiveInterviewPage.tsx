@@ -24,7 +24,6 @@ export function LiveInterviewPage() {
     ipc.listJobs().then(setJobs, () => {});
   }, []);
 
-  const cloud = settings?.transcription.engine === 'cloud';
 
   return (
     <div className="flex flex-col gap-6">
@@ -77,27 +76,6 @@ export function LiveInterviewPage() {
                   ))}
                 </select>
                 <span className="muted text-xs">Its description shapes every answer. Add jobs under Job Context.</span>
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-sm font-medium">Transcription</span>
-                <select
-                  className="field"
-                  value={settings.transcription.engine}
-                  onChange={(e) =>
-                    saveSettings({
-                      ...settings,
-                      transcription: { ...settings.transcription, engine: e.target.value as 'cloud' | 'local' },
-                    })
-                  }
-                >
-                  <option value="cloud">OpenAI: most accurate, needs internet</option>
-                  <option value="local">On this PC: private and offline</option>
-                </select>
-                <span className="muted text-xs">
-                  {cloud
-                    ? 'Each sentence of audio is sent to OpenAI through Velora and not stored.'
-                    : 'Audio never leaves this PC. Download a speech model on the Overview page.'}
-                </span>
               </label>
               <label className="flex items-center gap-2 text-sm sm:col-span-2">
                 <input

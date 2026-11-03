@@ -12,7 +12,6 @@ export interface ShortcutSettings {
   toggleClickThrough: string;
 }
 
-export type TranscriptionEngine = 'cloud' | 'local';
 
 export interface CopilotSettings {
   /** Answer automatically when the interviewer finishes a question. */
@@ -39,7 +38,8 @@ export interface Settings {
     microphoneDeviceId: string | null;
     systemAudioDeviceId: string | null;
   };
-  transcription: { engine: TranscriptionEngine; modelId: string; language: string };
+  /** Speech is transcribed by OpenAI gpt-4o-mini-transcribe through the Velora API. */
+  transcription: { language: string };
   copilot: CopilotSettings;
   /** Tailors live answers, practice questions, feedback and model answers. */
   customInstructions: string;
@@ -73,12 +73,6 @@ export interface SystemInfo {
   logicalCores: number;
   totalMemoryMb: number;
   availableMemoryMb: number;
-  meetsMinimumRam: boolean;
-  meetsRecommendedRam: boolean;
-  recommendedModel: string;
-  modelsDir: string;
-  modelsDirExists: boolean;
-  installedModels: string[];
 }
 
 export type SourceKind = 'microphone' | 'systemAudio';
@@ -93,37 +87,6 @@ export interface AudioDevices {
   inputs: AudioDevice[];
   outputs: AudioDevice[];
 }
-
-export interface ModelSpec {
-  id: string;
-  quantization: string;
-  fileName: string;
-  sizeBytes: number;
-  role: 'default' | 'fallback' | 'quality';
-}
-
-export interface ModelStatus {
-  spec: ModelSpec;
-  installed: boolean;
-  selfTestRtf: number | null;
-}
-
-export interface ModelsOverview {
-  models: ModelStatus[];
-  cpuSupported: boolean;
-  installing: string | null;
-  engineInfo: string;
-}
-
-export type InstallProgress =
-  | { stage: 'downloading'; received: number; total: number }
-  | { stage: 'verifying' }
-  | { stage: 'selfTest' };
-
-export type InstallEvent =
-  | { status: 'progress'; modelId: string; progress: InstallProgress }
-  | { status: 'done'; modelId: string; model: ModelStatus }
-  | { status: 'failed'; modelId: string; message: string };
 
 export interface TranscriptSegment {
   id: string;

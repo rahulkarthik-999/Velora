@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Check } from 'lucide-react';
 import { ipc } from '../../lib/ipc';
 import { useApp } from '../../stores/app';
-import type { AnswerStyle, AudioDevice, AudioDevices, CopilotSettings, Settings, ShortcutSettings, Theme, TranscriptionEngine } from '../../types';
+import type { AnswerStyle, AudioDevice, AudioDevices, CopilotSettings, Settings, ShortcutSettings, Theme } from '../../types';
 
 function DeviceSelect({
   devices,
@@ -131,17 +131,10 @@ export function SettingsPage() {
           />
           <div className="muted mt-1 text-right text-xs">{draft.customInstructions.length} / 1500</div>
         </Row>
-        <Row label="Transcription" hint="OpenAI is the most accurate. On this PC keeps audio private and works offline.">
-          <select
-            className="field"
-            value={draft.transcription.engine}
-            onChange={(e) => update({ transcription: { ...draft.transcription, engine: e.target.value as TranscriptionEngine } })}
-          >
-            <option value="cloud">OpenAI (cloud, uses your Velora account)</option>
-            <option value="local">On this PC (whisper)</option>
-          </select>
+        <Row label="Transcription" hint="Speech is sent a sentence at a time to OpenAI (gpt-4o-mini-transcribe) through your Velora account. Silence is never sent, and audio is not stored.">
+          <span className="text-sm">OpenAI gpt-4o-mini-transcribe</span>
         </Row>
-        <Row label="Language" hint="Two-letter code for cloud transcription, e.g. en, hi, es. Leave empty to detect.">
+        <Row label="Language" hint="Two-letter code, e.g. en, hi, es. Leave empty to detect it.">
           <input
             className="field font-mono"
             value={draft.transcription.language}
@@ -150,17 +143,6 @@ export function SettingsPage() {
             aria-label="Transcription language"
             onChange={(e) => update({ transcription: { ...draft.transcription, language: e.target.value.toLowerCase() } })}
           />
-        </Row>
-        <Row label="On-device speech model" hint="Used when transcribing on this PC. Download models on the Overview page.">
-          <select
-            className="field"
-            value={draft.transcription.modelId}
-            onChange={(e) => update({ transcription: { ...draft.transcription, modelId: e.target.value } })}
-          >
-            <option value="small.en-q5_1">small.en: recommended</option>
-            <option value="base.en-q5_1">base.en: lighter and faster</option>
-            <option value="small.en-q8_0">small.en Q8: most accurate</option>
-          </select>
         </Row>
       </section>
 

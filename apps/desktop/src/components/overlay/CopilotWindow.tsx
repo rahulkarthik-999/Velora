@@ -226,19 +226,6 @@ function OverlayPanel({ onClose }: { onClose: () => void }) {
           <option value="light">Light</option>
         </select>
       </label>
-      <label className="flex items-center gap-2">
-        <span className="w-20 shrink-0">Transcriber</span>
-        <select
-          className="field py-1 text-[12px]"
-          value={settings.transcription.engine}
-          onChange={(e) =>
-            save({ ...settings, transcription: { ...settings.transcription, engine: e.target.value as Settings['transcription']['engine'] } })
-          }
-        >
-          <option value="cloud">OpenAI (cloud, most accurate)</option>
-          <option value="local">On this PC (private, offline)</option>
-        </select>
-      </label>
       <div className="divide-y divide-[var(--border)]">
         <Switch label="Auto-answer questions" checked={c.autoAnswer} onChange={(v) => setCopilot({ autoAnswer: v })} hint={settings.shortcuts.toggleAutoAnswer} />
         <Switch label="Always on top" checked={c.alwaysOnTop} onChange={(v) => setCopilot({ alwaysOnTop: v })} />

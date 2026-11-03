@@ -58,5 +58,5 @@ pnpm-debug.log*
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
 
-# Pinned third-party source fetched by scripts/fetch-whisper.ps1
+# whisper.cpp source from builds before transcription moved to OpenAI; unused
 apps/desktop/src-tauri/third_party/

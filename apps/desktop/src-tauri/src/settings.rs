@@ -83,26 +83,17 @@ impl Default for AudioSettings {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+/// Speech is transcribed by OpenAI gpt-4o-mini-transcribe through the Velora
+/// API. Older settings files may still hold `engine` and `modelId`; they are
+/// ignored when read.
 pub struct TranscriptionSettings {
-    pub engine: TranscriptionEngine,
-    /// On-device model, used when the engine is `Local`.
-    pub model_id: String,
-    /// Two-letter language code passed to the cloud transcriber; empty detects it.
+    /// Two-letter language code; empty detects it.
     pub language: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum TranscriptionEngine {
-    /// OpenAI, through the Velora API. Needs a connected account.
-    Cloud,
-    /// whisper.cpp on this PC. Audio never leaves the machine.
-    Local,
 }
 
 impl Default for TranscriptionSettings {
     fn default() -> Self {
-        Self { engine: TranscriptionEngine::Cloud, model_id: "small.en-q5_1".into(), language: "en".into() }
+        Self { language: "en".into() }
     }
 }
 
@@ -194,7 +185,6 @@ impl Settings {
             seen.push(parsed);
         }
 
-        crate::transcription::models::find(&self.transcription.model_id)?;
         let lang = &self.transcription.language;
         if !(lang.is_empty() || (lang.len() == 2 && lang.chars().all(|c| c.is_ascii_lowercase()))) {
             return Err(AppError::InvalidSettings("Language must be a two-letter code such as en, or empty to detect it.".into()));
@@ -387,5 +377,15 @@ mod tests {
         let s = SettingsStore::load(path).get();
         assert_eq!(s.theme, Theme::Light);
         assert_eq!(s.shortcuts, ShortcutSettings::default());
+    }
+
+    #[test]
+    fn settings_from_the_on_device_engine_still_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(&path, r#"{ "theme": "dark", "transcription": { "engine": "local", "modelId": "small.en-q5_1", "language": "hi" } }"#).unwrap();
+        let s = SettingsStore::load(path).get();
+        assert_eq!(s.theme, Theme::Dark);
+        assert_eq!(s.transcription.language, "hi");
     }
 }

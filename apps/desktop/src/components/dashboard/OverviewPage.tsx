@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Cpu, HardDrive, MemoryStick, Radio } from 'lucide-react';
+import { Cpu, HardDrive, MemoryStick, Radio } from 'lucide-react';
 import { ipc } from '../../lib/ipc';
 import { formatMemory } from '../../lib/format';
 import { useApp } from '../../stores/app';
 import type { SystemInfo } from '../../types';
-import { ModelSetup } from './ModelSetup';
 
 function Stat({ icon: Icon, label, value, note }: { icon: typeof Cpu; label: string; value: string; note?: string }) {
   return (
@@ -60,25 +59,10 @@ export function OverviewPage() {
               <Stat icon={Cpu} label="Processor" value={`${info.logicalCores} threads`} note={info.cpuBrand || undefined} />
               <Stat
                 icon={HardDrive}
-                label="Recommended model"
-                value={info.recommendedModel}
-                note={info.meetsMinimumRam ? 'Based on this PC’s memory' : 'Lighter model for low memory'}
+                label="Transcription"
+                value="OpenAI"
+                note="gpt-4o-mini-transcribe, through your Velora account"
               />
-            </div>
-            <div className="mt-3 flex items-center gap-2 text-sm">
-              {info.meetsMinimumRam ? (
-                <>
-                  <CheckCircle2 size={16} className="text-emerald-500" />
-                  <span>
-                    Meets the 8 GB minimum{info.meetsRecommendedRam ? ' and the 16 GB recommendation' : ''}.
-                  </span>
-                </>
-              ) : (
-                <>
-                  <AlertTriangle size={16} className="text-amber-500" />
-                  <span>Below the 8 GB minimum. Velora will use the lighter base.en model.</span>
-                </>
-              )}
             </div>
             <p className="muted mt-1 text-xs">
               {info.os} · Velora {info.appVersion}
@@ -87,7 +71,6 @@ export function OverviewPage() {
         )}
       </section>
 
-      <ModelSetup />
     </div>
   );
 }

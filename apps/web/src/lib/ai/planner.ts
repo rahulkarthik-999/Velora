@@ -22,7 +22,7 @@ export async function generateWorkflow(
   context?: string,
   attachmentInfo?: string,
   templateContext?: string
-): Promise<{ workflow: AIWorkflowResponse; usage: { inputTokens: number; outputTokens: number; model: string } }> {
+): Promise<{ workflow: AIWorkflowResponse; usage: { inputTokens: number; outputTokens: number; model: string; provider: string; estimatedCostUsd: number } }> {
   const provider = getAIProvider();
 
   const userMessage = [
@@ -63,6 +63,7 @@ export async function generateWorkflow(
       { role: 'user', content: userMessage },
     ],
     schema: schemaDescription,
+    task: 'reasoning',
     temperature: 0.4,
     maxTokens: 4096,
   });
@@ -81,6 +82,9 @@ export async function generateWorkflow(
         },
       ],
       schema: schemaDescription,
+      // Same model as the first attempt: no switching mid-task.
+      model: result.model,
+      task: 'reasoning',
       temperature: 0.3,
       maxTokens: 4096,
     });
@@ -96,6 +100,8 @@ export async function generateWorkflow(
         inputTokens: result.inputTokens + retryResult.inputTokens,
         outputTokens: result.outputTokens + retryResult.outputTokens,
         model: retryResult.model,
+        provider: retryResult.provider,
+        estimatedCostUsd: result.estimatedCostUsd + retryResult.estimatedCostUsd,
       },
     };
   }
@@ -106,6 +112,8 @@ export async function generateWorkflow(
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       model: result.model,
+      provider: result.provider,
+      estimatedCostUsd: result.estimatedCostUsd,
     },
   };
 }

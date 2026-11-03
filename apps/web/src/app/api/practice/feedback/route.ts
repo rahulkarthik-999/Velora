@@ -5,5 +5,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export function POST(req: NextRequest) {
-  return handlePractice(req, 'feedback', FeedbackInput, FeedbackOutput, feedbackPrompt);
+  return handlePractice(req, 'feedback', FeedbackInput, FeedbackOutput, feedbackPrompt, (input) =>
+    // Reviewing code is a reasoning task; DeepSeek when configured.
+    input.category === 'coding' ? 'reasoning' : 'chat'
+  );
 }

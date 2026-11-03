@@ -26,6 +26,8 @@ export interface StepHandlerResult {
     inputTokens: number;
     outputTokens: number;
     model: string;
+    provider?: string;
+    estimatedCostUsd?: number;
   };
 }
 
@@ -96,6 +98,8 @@ async function generateForStep(
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       model: result.model,
+      provider: result.provider,
+      estimatedCostUsd: result.estimatedCostUsd,
     },
   };
 }

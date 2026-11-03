@@ -181,12 +181,12 @@ export async function POST(req: NextRequest) {
           data: {
             userId: user.id,
             taskId: task.id,
-            provider: process.env.AI_PROVIDER || 'openai',
+            provider: usage.provider,
             model: usage.model,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             creditsUsed: 1,
-            estimatedCostUsd: (usage.inputTokens * 0.000005) + (usage.outputTokens * 0.000015),
+            estimatedCostUsd: usage.estimatedCostUsd,
           },
         });
 
@@ -247,12 +247,12 @@ export async function POST(req: NextRequest) {
         data: {
           userId: user.id,
           taskId: task.id,
-          provider: process.env.AI_PROVIDER || 'openai',
+          provider: usage.provider,
           model: usage.model,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
           creditsUsed: 1,
-          estimatedCostUsd: (usage.inputTokens * 0.000005) + (usage.outputTokens * 0.000015),
+          estimatedCostUsd: usage.estimatedCostUsd,
         },
       });
 

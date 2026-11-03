@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import prisma from '@/lib/db';
 import { checkRateLimit, rateLimitError, serverError, unauthorized } from '@/lib/api-utils';
 import { getDesktopCaller } from '@/lib/desktop-auth';
 import { AIProviderError, getAIProvider } from '@/lib/ai/provider';
+import { recordAIFailure, recordAIUsage } from '@/lib/ai/ledger';
+import { MODELS, availableModels, getModel, type TaskClass } from '@/lib/ai/models';
 import { getUsageSummary } from '@/lib/usage';
 
 // ============================================================================
@@ -12,10 +13,18 @@ import { getUsageSummary } from '@/lib/usage';
 
 export const PROMPT_VERSION = 'practice-v1';
 
-/** A cheap, capable model for practice; override with PRACTICE_AI_MODEL. */
-export function practiceModel(): string {
-  return process.env.PRACTICE_AI_MODEL || process.env.AI_FALLBACK_MODEL || 'gpt-4o-mini';
+/**
+ * Optional fixed model for everyday practice requests (PRACTICE_AI_MODEL).
+ * Unset, or not an allowed model, means routing decides (gpt-4o-mini).
+ */
+export function practiceModel(): string | undefined {
+  return getModel(process.env.PRACTICE_AI_MODEL?.trim())?.id;
 }
+
+/** Optional `model` field on any AI request: must be one of the allowlisted IDs. */
+export const ModelChoice = z
+  .enum(MODELS.map((m) => m.id) as [string, ...string[]], { message: 'Unknown model' })
+  .optional();
 
 export const QuestionCategory = z.enum(['behavioral', 'technical', 'situational', 'experience', 'general', 'coding']);
 
@@ -173,16 +182,24 @@ export async function handlePractice<I extends z.ZodTypeAny, O extends z.ZodType
   name: string,
   inputSchema: I,
   outputSchema: O,
-  buildPrompt: (input: z.infer<I>) => Prompt
+  buildPrompt: (input: z.infer<I>) => Prompt,
+  task: TaskClass | ((input: z.infer<I>) => TaskClass) = 'chat'
 ): Promise<NextResponse> {
+  let callerId: string | undefined;
   try {
     const caller = await getDesktopCaller(req);
     if (!caller) return unauthorized();
+    callerId = caller.userId;
     if (!checkRateLimit(`practice:${caller.userId}`, 20, 60_000)) return rateLimitError();
 
-    const parsed = inputSchema.safeParse(await req.json().catch(() => null));
+    const body = await req.json().catch(() => null);
+    const parsed = inputSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.issues[0]?.message ?? 'Invalid request' }, { status: 400 });
+    }
+    const choice = ModelChoice.safeParse((body as { model?: unknown } | null)?.model ?? undefined);
+    if (!choice.success) {
+      return NextResponse.json({ error: 'Unknown model. GET /api/ai/models lists the models you can use.' }, { status: 400 });
     }
 
     const usage = await getUsageSummary(caller.userId);
@@ -192,11 +209,19 @@ export async function handlePractice<I extends z.ZodTypeAny, O extends z.ZodType
         { status: 402 }
       );
     }
+    if (choice.data && !availableModels(usage.tier).some((m) => m.id === choice.data)) {
+      return NextResponse.json(
+        { error: `${getModel(choice.data)?.label ?? choice.data} isn't available on your plan right now.` },
+        { status: 403 }
+      );
+    }
 
     const prompt = buildPrompt(parsed.data);
-    const model = practiceModel();
+    const taskClass = typeof task === 'function' ? task(parsed.data) : task;
+    const model = choice.data ?? (taskClass === 'chat' ? practiceModel() : undefined);
     const result = await getAIProvider().generateStructuredOutput<unknown>({
       model,
+      task: taskClass,
       schema: prompt.schema,
       maxTokens: prompt.maxTokens,
       temperature: prompt.temperature,
@@ -208,16 +233,7 @@ export async function handlePractice<I extends z.ZodTypeAny, O extends z.ZodType
     });
 
     // Record usage even if the output then fails validation: the tokens were spent.
-    await prisma.usageLedger.create({
-      data: {
-        userId: caller.userId,
-        provider: process.env.AI_PROVIDER || 'openai',
-        model: result.model,
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        creditsUsed: 1,
-      },
-    });
+    await recordAIUsage({ userId: caller.userId, endpoint: name, creditsUsed: 1 }, result);
 
     const output = outputSchema.safeParse(result.data);
     if (!output.success) {
@@ -228,12 +244,14 @@ export async function handlePractice<I extends z.ZodTypeAny, O extends z.ZodType
     return NextResponse.json({
       result: output.data,
       model: result.model,
+      provider: result.provider,
       promptVersion: PROMPT_VERSION,
       creditsRemaining: usage.creditsRemaining - 1,
     });
   } catch (error) {
     if (error instanceof AIProviderError) {
-      console.error(`[practice:${name}] AI error`, error.statusCode, error.message);
+      console.error(`[practice:${name}] AI error`, error.code, error.statusCode, error.provider, error.model);
+      if (callerId) await recordAIFailure({ userId: callerId, endpoint: name }, error);
       const status = error.statusCode === 408 ? 504 : 502;
       return NextResponse.json({ error: 'The AI service is unavailable right now. Please try again.' }, { status });
     }

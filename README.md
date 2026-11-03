@@ -88,11 +88,11 @@ pnpm start
 | `NEXTAUTH_SECRET` | 32-byte secret for session signing | `openssl rand -base64 32` |
 | `GOOGLE_CLIENT_ID` | Google OAuth Client ID | `*.apps.googleusercontent.com` |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret | String |
-| `AI_PROVIDER` | AI provider selector | `openai` |
-| `AI_BASE_URL` | AI endpoint base URL | `https://api.openai.com/v1` |
-| `AI_API_KEY` | Model API key | `sk-...` |
-| `AI_MODEL` | Primary execution model | `gpt-4o` |
-| `AI_FALLBACK_MODEL` | Fallback model for failover | `gpt-4o-mini` |
+| `AI_BASE_URL` | OpenAI endpoint base URL | `https://api.openai.com/v1` |
+| `AI_API_KEY` | OpenAI API key (also used for live transcription) | `sk-...` |
+| `AI_MODEL` | Everyday model (`gpt-4o-mini` or `gpt-4o`) | `gpt-4o-mini` |
+| `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL` | Optional: reasoning/coding requests | `deepseek-flash` |
+| `GROQ_API_KEY`, `GROQ_MODEL` | Optional: low-latency live answers | `openai/gpt-oss-120b` |
 | `DODO_API_KEY` | Dodo Payments API Key | String |
 | `DODO_WEBHOOK_SECRET` | Dodo Webhook Verification Secret | String |
 | `DODO_PRODUCT_PLUS` | Product ID for Plus tier (₹499) | String |

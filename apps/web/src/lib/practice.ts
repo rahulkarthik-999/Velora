@@ -11,6 +11,14 @@ import { creditCost, type Operation } from '@/lib/billing/plans';
 // Interview practice: shared request handling and prompts
 // ============================================================================
 
+/**
+ * An optional text field. Missing and null both mean "not provided": older desktop builds
+ * sent null for optional context, which plain .optional() rejects ("Expected string, received null").
+ */
+export function optionalText<T extends z.ZodTypeAny>(schema: T) {
+  return schema.nullish().transform((v) => (v === null ? undefined : v)) as unknown as z.ZodOptional<T>;
+}
+
 export const PROMPT_VERSION = 'practice-v1';
 
 /**
@@ -28,13 +36,13 @@ export const ModelChoice = z
 
 export const QuestionCategory = z.enum(['behavioral', 'technical', 'situational', 'experience', 'general', 'coding']);
 
-const customInstructions = z.string().trim().max(1_500).optional();
+const customInstructions = optionalText(z.string().trim().max(1_500));
 
 export const QuestionsInput = z.object({
   jobTitle: z.string().trim().min(1).max(200),
-  company: z.string().trim().max(200).optional(),
-  jobDescription: z.string().max(15_000).optional(),
-  candidateSummary: z.string().max(4_000).optional(),
+  company: optionalText(z.string().trim().max(200)),
+  jobDescription: optionalText(z.string().max(15_000)),
+  candidateSummary: optionalText(z.string().max(4_000)),
   focus: z.enum(['mixed', 'behavioral', 'technical', 'situational']).default('mixed'),
   difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),
   count: z.number().int().min(1).max(10).default(5),
@@ -52,7 +60,7 @@ export const FeedbackInput = z.object({
   question: z.string().trim().min(5).max(1_000),
   category: QuestionCategory.default('general'),
   answer: z.string().trim().min(1, 'Record an answer first').max(8_000),
-  jobTitle: z.string().trim().max(200).optional(),
+  jobTitle: optionalText(z.string().trim().max(200)),
   candidateFacts: z.array(z.string().max(600)).max(6).default([]),
   answerStyle: z.enum(['concise', 'detailed', 'star']).default('concise'),
   customInstructions,

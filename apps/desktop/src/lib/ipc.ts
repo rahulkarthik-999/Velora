@@ -87,7 +87,8 @@ export const ipc = {
   showCopilot: () => call<void>('show_copilot'),
   toggleCopilot: () => call<void>('toggle_copilot'),
   showMain: () => call<void>('show_main'),
-  liveAnswer: (question: string | null) => call<SavedAnswer>('live_answer', { question }),
+  liveAnswer: (question: string | null, requestId: string | null) =>
+    call<SavedAnswer>('live_answer', { question, requestId }),
   getLiveAnswers: (sessionId: string) => call<SavedAnswer[]>('get_live_answers', { sessionId }),
   listKnowledge: () => call<KnowledgeDoc[]>('list_knowledge'),
   addKnowledgeNote: (title: string, text: string) => call<KnowledgeDoc>('add_knowledge_note', { title, text }),

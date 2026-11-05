@@ -240,9 +240,9 @@ export interface SavedAnswer {
 }
 
 export type AnswerEvent =
-  | { status: 'pending'; requestId: string; question: string }
+  | { status: 'pending'; requestId: string; question: string; askedAtMs: number | null; heardUntilMs: number | null }
   | { status: 'done'; requestId: string; answer: SavedAnswer; creditsRemaining: number | null }
-  | { status: 'failed'; requestId: string; message: string };
+  | { status: 'failed'; requestId: string; question: string; message: string };
 
 export interface KnowledgeDoc {
   id: string;

@@ -46,3 +46,34 @@ describe('transcribe input', () => {
     expect(TranscribeInput.safeParse({ audio: 'A'.repeat(1_000), language: 'en' }).success).toBe(true);
   });
 });
+
+describe('null optional context (regression: "Expected string, received null")', () => {
+  it('accepts null for every optional field and treats it as missing', () => {
+    const parsed = LiveAnswerInput.safeParse({
+      question: 'How would you optimize a React application that takes too long to load?',
+      conversation: null,
+      jobTitle: null,
+      company: null,
+      jobDescription: null,
+      customInstructions: null,
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.jobTitle).toBeUndefined();
+    expect(parsed.data.conversation).toBeUndefined();
+    const p = liveAnswerPrompt(parsed.data);
+    expect(p.user).not.toContain('null');
+    expect(p.user).toContain('No knowledge passages matched');
+  });
+
+  it('still rejects a missing question with a clear message', () => {
+    const r = LiveAnswerInput.safeParse({ question: null });
+    expect(r.success).toBe(false);
+  });
+
+  it('asks for STAR on behavioural questions and plain spoken answers', () => {
+    const p = liveAnswerPrompt(LiveAnswerInput.parse({ question: 'Tell me about a challenging project you worked on.' }));
+    expect(p.system).toContain('STAR');
+    expect(p.system).toContain('never claim a project');
+  });
+});

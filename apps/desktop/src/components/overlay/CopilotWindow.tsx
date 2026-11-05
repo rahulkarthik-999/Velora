@@ -2,18 +2,11 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import clsx from 'clsx';
 import {
-  BookOpen,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Copy,
   EyeOff,
   Keyboard,
   LayoutDashboard,
-  Loader2,
   MessageSquareText,
   Radio,
-  RefreshCw,
   ScrollText,
   Send,
   SlidersHorizontal,
@@ -28,6 +21,7 @@ import { useTranscript } from '../../stores/transcript';
 import { useBilling } from '../../stores/billing';
 import type { AnswerStyle, Job, Settings, Theme } from '../../types';
 import { TranscriptView } from '../transcript/TranscriptView';
+import { QaFeed } from './QaFeed';
 import { CaptureIndicators } from '../session/CaptureIndicators';
 import { SessionControls } from '../session/SessionControls';
 import { SessionTimer } from '../session/SessionTimer';
@@ -284,108 +278,6 @@ function KeysPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-function AnswerCard() {
-  const answers = useCopilot((s) => s.answers);
-  const viewing = useCopilot((s) => s.viewing);
-  const pending = useCopilot((s) => s.pending);
-  const compact = useApp((s) => s.settings?.copilot.compact ?? false);
-  const { ask, view } = useCopilot.getState();
-  const showNotice = useApp((s) => s.showNotice);
-  const [showSources, setShowSources] = useState(false);
-  const index = viewing === -1 ? answers.length - 1 : viewing;
-  const current = answers[index];
-
-  if (pending && viewing === -1) {
-    return (
-      <section className="card flex flex-col gap-2 p-3" aria-live="polite">
-        <p className="muted text-[0.85em]">{pending.question}</p>
-        <p className="flex items-center gap-2 text-accent">
-          <Loader2 size={14} className="animate-spin" /> Writing an answer…
-        </p>
-      </section>
-    );
-  }
-  if (!current) {
-    return (
-      <section className="card flex flex-col items-center gap-1.5 p-4 text-center">
-        <Sparkles size={18} className="text-accent" />
-        <p className="font-medium">Answers appear here</p>
-        <p className="muted text-[0.85em]">
-          When the interviewer asks a question, Velora writes an answer from your resume, notes and job. You can also type a question below.
-        </p>
-      </section>
-    );
-  }
-
-  const a = current.answer;
-  const copy = async () => {
-    await navigator.clipboard.writeText(a.answer);
-    showNotice('Answer copied');
-  };
-
-  return (
-    <section className="card flex flex-col gap-2 p-3" aria-live="polite" data-testid="answer-card">
-      <div className="flex items-center gap-1">
-        <p className="muted min-w-0 flex-1 truncate text-[0.85em]" title={a.question || current.question}>
-          Q: {a.question || current.question}
-        </p>
-        {pending && <Loader2 size={12} className="animate-spin text-accent" aria-label="Writing a new answer" />}
-        <IconButton title="Previous answer (Alt+←)" onClick={() => view(index - 1)}>
-          <ChevronLeft size={13} />
-        </IconButton>
-        <span className="muted text-[11px] tabular-nums">
-          {index + 1}/{answers.length}
-        </span>
-        <IconButton title="Next answer (Alt+→)" onClick={() => view(index + 1)}>
-          <ChevronRight size={13} />
-        </IconButton>
-        <IconButton title="Regenerate (Ctrl+R)" onClick={() => ask(a.question || current.question)}>
-          <RefreshCw size={13} />
-        </IconButton>
-        <IconButton title="Copy answer (Ctrl+Shift+C)" onClick={copy}>
-          <Copy size={13} />
-        </IconButton>
-      </div>
-      <p className="select-text whitespace-pre-wrap text-[1.05em] leading-relaxed">{a.answer}</p>
-      {!compact && a.keyPoints.length > 0 && (
-        <ul className="select-text list-disc space-y-0.5 pl-5 text-[0.92em]">
-          {a.keyPoints.map((k) => (
-            <li key={k}>{k}</li>
-          ))}
-        </ul>
-      )}
-      {!compact && a.followUps.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {a.followUps.map((f) => (
-            <button
-              key={f}
-              className="rounded-full border border-[var(--border)] px-2 py-0.5 text-left text-[0.8em] hover:bg-[var(--surface-2)]"
-              title="Prepare an answer to this follow-up"
-              onClick={() => ask(f)}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-      )}
-      {!compact && (
-        <button className="muted flex items-center gap-1 text-[0.8em]" onClick={() => setShowSources(!showSources)}>
-          <BookOpen size={11} />
-          {a.sources.length ? `Based on ${a.sources.length} item${a.sources.length === 1 ? '' : 's'} from your knowledge base` : 'No knowledge base items used'}
-          {a.sources.length > 0 && <ChevronDown size={11} className={clsx(showSources && 'rotate-180')} />}
-        </button>
-      )}
-      {showSources && !compact && (
-        <ul className="muted select-text space-y-1 border-l-2 border-[var(--border)] pl-2 text-[0.8em]">
-          {a.sources.map((s) => (
-            <li key={s}>{s}</li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
 /** Answers once the interviewer pauses after something that sounds like a question. */
 function useAutoAnswer(enabled: boolean) {
   const timer = useRef(0);
@@ -427,7 +319,7 @@ export function CopilotWindow() {
   const levels = useTranscript((s) => s.levels);
   const transcriber = useTranscript((s) => s.transcriber);
   const notices = useTranscript((s) => s.notices);
-  const copilotError = useCopilot((s) => s.error);
+  const copilotNotice = useCopilot((s) => s.notice);
   const credits = useCopilot((s) => s.creditsRemaining);
   const { replaceSegment, dismissNotice } = useTranscript.getState();
   const [panel, setPanel] = useState<Panel>(null);
@@ -464,9 +356,8 @@ export function CopilotWindow() {
     const onKey = (e: KeyboardEvent) => {
       const s = useApp.getState().settings;
       const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement;
-      const { answers, viewing, ask, view, clear } = useCopilot.getState();
-      const index = viewing === -1 ? answers.length - 1 : viewing;
-      const current = answers[index];
+      const { cards, ask, retry, clear } = useCopilot.getState();
+      const latest = [...cards].sort((x, y) => x.createdAt - y.createdAt).filter((c) => c.answer).pop();
       const ctrl = e.ctrlKey || e.metaKey;
 
       if (e.key === 'Escape') {
@@ -477,18 +368,18 @@ export function CopilotWindow() {
       } else if (ctrl && e.key === 'Enter' && !typing) {
         e.preventDefault();
         ask(null);
-      } else if (ctrl && e.shiftKey && e.key.toLowerCase() === 'c' && current) {
+      } else if (ctrl && e.shiftKey && e.key.toLowerCase() === 'c' && latest?.answer) {
         e.preventDefault();
-        navigator.clipboard.writeText(current.answer.answer).then(() => useApp.getState().showNotice('Answer copied'));
+        navigator.clipboard.writeText(latest.answer.answer.answer).then(() => useApp.getState().showNotice('Answer copied'));
       } else if (ctrl && !e.shiftKey && e.key.toLowerCase() === 'r') {
         e.preventDefault();
-        if (current) ask(current.answer.question || current.question);
+        if (latest) retry(latest);
       } else if (e.altKey && e.key === 'ArrowLeft') {
         e.preventDefault();
-        view(index - 1);
+        document.querySelector('[data-feed]')?.scrollBy({ top: -160, behavior: 'smooth' });
       } else if (e.altKey && e.key === 'ArrowRight') {
         e.preventDefault();
-        view(index + 1);
+        document.querySelector('[data-feed]')?.scrollBy({ top: 160, behavior: 'smooth' });
       } else if (e.key === '/' && !typing) {
         e.preventDefault();
         askInput.current?.focus();
@@ -574,12 +465,12 @@ export function CopilotWindow() {
         </div>
       </header>
 
-      {(error || copilotError) && (
-        <div role="alert" className="flex items-start gap-2 border-b border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-          <span className="flex-1">{copilotError ?? error}</span>
+      {(error || copilotNotice) && (
+        <div role="status" className="flex items-start gap-2 border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-xs">
+          <span className="muted flex-1">{copilotNotice ?? error}</span>
           <button
             aria-label="Dismiss"
-            onClick={() => (copilotError ? useCopilot.getState().dismissError() : useApp.getState().clearError())}
+            onClick={() => (copilotNotice ? useCopilot.getState().dismissNotice() : useApp.getState().clearError())}
           >
             <X size={12} />
           </button>
@@ -602,7 +493,7 @@ export function CopilotWindow() {
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2.5">
+      <div data-feed className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2.5">
         {panel === 'instructions' && <InstructionsPanel onClose={() => setPanel(null)} />}
         {panel === 'overlay' && <OverlayPanel onClose={() => setPanel(null)} />}
         {panel === 'keys' && <KeysPanel onClose={() => setPanel(null)} />}
@@ -631,26 +522,26 @@ export function CopilotWindow() {
             </button>
           </section>
         ) : (
-          <AnswerCard />
+          <QaFeed listening={status === 'active' && session?.mode === 'live'} />
         )}
 
         {copilot?.showTranscript && (inSession || segments.length > 0) && (
-          <section className="card flex min-h-32 flex-1 flex-col p-2.5">
-            <h2 className="muted mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider">
-              <ScrollText size={12} /> Transcript
+          <details className="card p-2.5">
+            <summary className="muted flex cursor-pointer list-none items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider">
+              <ScrollText size={12} /> Full transcript
               <span className="ml-auto font-normal normal-case tracking-normal" data-testid="transcriber-status">
                 {transcriber.status === 'loading' && 'Starting transcriber…'}
                 {transcriber.status === 'ready' && transcriber.modelId}
               </span>
-            </h2>
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            </summary>
+            <div className="mt-1 max-h-56 overflow-y-auto">
               <TranscriptView
                 segments={segments}
                 onSegmentSaved={replaceSegment}
                 empty={status === 'paused' ? 'Paused. Nothing is being captured.' : 'Listening… the interviewer’s words appear here.'}
               />
             </div>
-          </section>
+          </details>
         )}
       </div>
 

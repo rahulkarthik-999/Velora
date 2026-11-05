@@ -47,7 +47,8 @@ impl Api {
     }
 
     pub fn post<B: Serialize, R: DeserializeOwned>(&self, path: &str, token: Option<&str>, body: &B) -> Result<R, ApiError> {
-        let json = serde_json::to_string(body).map_err(|e| ApiError::Network(e.to_string()))?;
+        let json = serde_json::to_string(&without_nulls(body).map_err(|e| ApiError::Network(e.to_string()))?)
+            .map_err(|e| ApiError::Network(e.to_string()))?;
         let mut req = self.agent.post(format!("{}{path}", self.base)).header("Content-Type", "application/json");
         if let Some(t) = token {
             req = req.header("Authorization", format!("Bearer {t}"));
@@ -83,6 +84,16 @@ impl Api {
             _ => Err(ApiError::Status(status, error_message(status, &body))),
         }
     }
+}
+
+/// Optional fields are sent by leaving them out, never as null: the server's schemas
+/// accept a missing optional field but reject null.
+pub fn without_nulls<B: Serialize>(body: &B) -> Result<serde_json::Value, serde_json::Error> {
+    let mut value = serde_json::to_value(body)?;
+    if let serde_json::Value::Object(map) = &mut value {
+        map.retain(|_, v| !v.is_null());
+    }
+    Ok(value)
 }
 
 /// Uses the server's `{"error": "..."}` message when there is one.
@@ -125,6 +136,13 @@ pub fn clear_token() -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn null_fields_are_left_out_of_requests() {
+        let body = serde_json::json!({ "jobTitle": "Dev", "company": null, "count": 5, "nested": { "keep": null } });
+        let out = without_nulls(&body).unwrap();
+        assert_eq!(out, serde_json::json!({ "jobTitle": "Dev", "count": 5, "nested": { "keep": null } }));
+    }
 
     #[test]
     fn surfaces_server_error_messages() {

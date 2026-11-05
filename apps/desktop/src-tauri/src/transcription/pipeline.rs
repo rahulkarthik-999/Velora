@@ -402,16 +402,29 @@ fn store_results(
         if !is_usable(&r.text, r.no_speech_prob, r.confidence) {
             continue;
         }
+        // Drop words already heard: the 300 ms overlap between split pieces, and the
+        // transcriber occasionally echoing the previous text it was given as context.
+        let text = {
+            let mut ctx = context.lock().expect("context lock");
+            let text = dedupe_against(ctx.slot(job.source), &r.text);
+            if !text.is_empty() {
+                remember(&mut ctx, job.source, &text);
+            }
+            text
+        };
+        if text.is_empty() {
+            log::debug!("Dropped a repeated {} segment", job.source.as_str());
+            continue;
+        }
         let start_ms = job.segment.start_ms as i64 + r.start_ms.max(0);
         let end_ms = (job.segment.start_ms as i64 + r.end_ms).clamp(start_ms, job.segment.end_ms as i64);
-        remember(&mut context.lock().expect("context lock"), job.source, &r.text);
         let segment = TranscriptSegment {
             id: uuid::Uuid::new_v4().to_string(),
             session_id: cfg.session_id.clone(),
             source: job.source.as_str().into(),
             start_ms,
             end_ms,
-            text: r.text,
+            text,
             confidence: Some(r.confidence),
             corrected: false,
         };
@@ -420,6 +433,35 @@ fn store_results(
         }
         emit(PipelineEvent::Segment { segment });
     }
+}
+
+fn words(text: &str) -> Vec<String> {
+    text.split_whitespace()
+        .map(|w| w.chars().filter(|c| c.is_alphanumeric() || *c == '\'').collect::<String>().to_lowercase())
+        .collect()
+}
+
+/// `next` without what `recent` (the same speaker's latest words) already contains:
+/// empty if it's a repeat, or with a repeated opening trimmed when it overlaps the end.
+pub fn dedupe_against(recent: &str, next: &str) -> String {
+    let tail: Vec<String> = {
+        let all = words(recent);
+        all[all.len().saturating_sub(80)..].to_vec()
+    };
+    let tokens: Vec<&str> = next.split_whitespace().collect();
+    let new: Vec<String> = words(next);
+    let meaningful = new.iter().filter(|w| !w.is_empty()).count();
+    if meaningful == 0 {
+        return String::new();
+    }
+    // A repeat of something just said (three words or more) is dropped outright.
+    if meaningful >= 3 && tail.windows(new.len()).any(|w| w == new.as_slice()) {
+        return String::new();
+    }
+    // Longest overlap between the end of what was heard and the start of the new text.
+    let max = tail.len().min(new.len().saturating_sub(1));
+    let overlap = (2..=max).rev().find(|&k| tail[tail.len() - k..] == new[..k]).unwrap_or(0);
+    tokens[overlap..].join(" ")
 }
 
 fn remember(ctx: &mut Context, source: SourceKind, text: &str) {
@@ -499,6 +541,22 @@ mod tests {
         assert!(!is_usable("(keyboard clicking)", 0.1, 0.9));
         assert!(!is_usable("...", 0.1, 0.9));
         assert!(!is_usable("Thank you.", 0.95, 0.9));
+    }
+
+    #[test]
+    fn repeated_and_overlapping_text_is_removed() {
+        let heard = "Thanks for joining. How would you optimize a React application that takes too long to load?";
+        // A transcriber echo of the last sentence is dropped.
+        assert_eq!(dedupe_against(heard, "How would you optimize a React application that takes too long to load?"), "");
+        // The overlap at a split boundary is trimmed, the new words kept.
+        assert_eq!(
+            dedupe_against(heard, "too long to load? And how would you measure it?"),
+            "And how would you measure it?"
+        );
+        // New questions pass through untouched, including short ones.
+        assert_eq!(dedupe_against(heard, "What is useMemo?"), "What is useMemo?");
+        assert_eq!(dedupe_against("", "Hello."), "Hello.");
+        assert_eq!(dedupe_against(heard, "  ... "), "");
     }
 
     #[test]

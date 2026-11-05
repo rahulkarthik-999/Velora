@@ -16,75 +16,159 @@ export function looksLikeQuestion(text: string): boolean {
   return t.split(/(?<=[.!])\s+/).some((sentence) => QUESTION_START.test(sentence.trim()));
 }
 
+export type CardStatus = 'generating' | 'answered' | 'failed';
+
+/** One interviewer question and the answer written for it. */
+export interface QaCard {
+  id: string;
+  question: string;
+  /** Session time the question started, when it came from the transcript. */
+  askedAtMs: number | null;
+  status: CardStatus;
+  answer: SavedAnswer | null;
+  /** Short, user-facing reason when generation failed. */
+  error: string | null;
+  createdAt: number;
+}
+
+/** The server's message, without technical noise; never a raw validation error. */
+export function friendlyError(message: string): string {
+  if (/credits|minutes|plan|payment|renew/i.test(message)) return message;
+  if (/sign in|session has ended|connect your/i.test(message)) return 'Sign in to Velora to get answers.';
+  if (/can't reach|network|timed out|internet/i.test(message)) return "Couldn't reach Velora. Check your connection and retry.";
+  if (/unavailable|unexpected answer|try again/i.test(message)) return 'The AI service had a problem with this answer. Retry in a moment.';
+  return 'Something went wrong writing this answer. Retry.';
+}
+
 interface CopilotStore {
   sessionId: string | null;
-  answers: SavedAnswer[];
-  /** Index into `answers` being shown; -1 follows the newest. */
-  viewing: number;
-  pending: { requestId: string; question: string } | null;
-  error: string | null;
+  cards: QaCard[];
+  /** Interviewer speech up to here (session ms) belongs to a card already. */
+  heardUntilMs: number;
+  /** A problem not tied to one question, e.g. "no new question yet". Dismissible. */
+  notice: string | null;
+  collapsed: Record<string, boolean>;
   creditsRemaining: number | null;
 
   attach: (sessionId: string | null) => Promise<void>;
   handle: (event: AnswerEvent) => void;
+  /** Ask a typed question, or (null) whatever the interviewer said since the last card. */
   ask: (question: string | null) => Promise<void>;
-  view: (index: number) => void;
+  retry: (card: QaCard) => Promise<void>;
+  toggle: (id: string) => void;
   clear: () => void;
-  dismissError: () => void;
+  dismissNotice: () => void;
+}
+
+const fromSaved = (a: SavedAnswer): QaCard => ({
+  id: a.id,
+  question: a.answer?.question || a.question,
+  askedAtMs: null,
+  status: 'answered',
+  answer: a,
+  error: null,
+  createdAt: a.createdAtMs,
+});
+
+function upsert(cards: QaCard[], id: string, patch: Partial<QaCard>, base: () => QaCard): QaCard[] {
+  const i = cards.findIndex((c) => c.id === id);
+  if (i === -1) return [...cards, { ...base(), ...patch }];
+  const next = cards.slice();
+  next[i] = { ...next[i], ...patch };
+  return next;
 }
 
 export const useCopilot = create<CopilotStore>((set, get) => ({
   sessionId: null,
-  answers: [],
-  viewing: -1,
-  pending: null,
-  error: null,
+  cards: [],
+  heardUntilMs: -1,
+  notice: null,
+  collapsed: {},
   creditsRemaining: null,
 
   attach: async (sessionId) => {
     if (sessionId === get().sessionId) return;
-    set({ sessionId, answers: [], viewing: -1, error: null });
+    set({ sessionId, cards: [], heardUntilMs: -1, notice: null, collapsed: {} });
     if (!sessionId) return;
     try {
       const saved = await ipc.getLiveAnswers(sessionId);
       if (get().sessionId !== sessionId) return;
-      // Merge: answers may have arrived while loading.
-      set((s) => ({ answers: [...saved, ...s.answers.filter((a) => !saved.some((x) => x.id === a.id))] }));
+      // Merge: live cards may have arrived while loading.
+      set((s) => ({ cards: [...saved.filter((a) => !s.cards.some((c) => c.answer?.id === a.id)).map(fromSaved), ...s.cards] }));
     } catch {
-      // History is a convenience; new answers still arrive.
+      // History is a convenience; new questions still arrive.
     }
   },
 
   handle: (event) => {
     switch (event.status) {
       case 'pending':
-        set({ pending: { requestId: event.requestId, question: event.question }, error: null });
+        set((s) => ({
+          heardUntilMs: Math.max(s.heardUntilMs, event.heardUntilMs ?? -1),
+          notice: null,
+          cards: upsert(s.cards, event.requestId, { status: 'generating', error: null, question: event.question }, () => ({
+            id: event.requestId,
+            question: event.question,
+            askedAtMs: event.askedAtMs ?? null,
+            status: 'generating',
+            answer: null,
+            error: null,
+            createdAt: Date.now(),
+          })),
+        }));
         return;
       case 'done':
         set((s) => ({
-          pending: s.pending?.requestId === event.requestId ? null : s.pending,
-          answers: s.answers.some((a) => a.id === event.answer.id) ? s.answers : [...s.answers, event.answer],
-          viewing: -1,
           creditsRemaining: event.creditsRemaining ?? s.creditsRemaining,
+          cards: upsert(
+            s.cards,
+            event.requestId,
+            { status: 'answered', answer: event.answer, error: null, question: event.answer.answer?.question || event.answer.question },
+            () => fromSaved(event.answer)
+          ),
         }));
         return;
       case 'failed':
-        set((s) => ({ pending: s.pending?.requestId === event.requestId ? null : s.pending, error: event.message }));
+        set((s) => ({
+          cards: upsert(s.cards, event.requestId, { status: 'failed', error: friendlyError(event.message) }, () => ({
+            id: event.requestId,
+            question: event.question,
+            askedAtMs: null,
+            status: 'failed',
+            answer: null,
+            error: friendlyError(event.message),
+            createdAt: Date.now(),
+          })),
+        }));
         return;
     }
   },
 
-  // The answer itself arrives as an event (in every window); only errors before that need handling here.
   ask: async (question) => {
     try {
-      await ipc.liveAnswer(question);
+      await ipc.liveAnswer(question, null);
     } catch (e) {
       const message = (e as Error).message;
-      if (message !== 'Already writing an answer.') set({ error: message, pending: null });
+      // Card-level failures arrive as events; only problems before a card exists show here.
+      if (/No new question/i.test(message)) {
+        if (question === null) set({ notice: 'Waiting for the interviewer’s next question.' });
+      } else if (!get().cards.some((c) => c.status === 'failed' && c.question === question)) {
+        set({ notice: friendlyError(message) });
+      }
     }
   },
 
-  view: (index) => set((s) => ({ viewing: index >= s.answers.length - 1 ? -1 : Math.max(0, index) })),
-  clear: () => set({ answers: [], viewing: -1, error: null }),
-  dismissError: () => set({ error: null }),
+  // Retry and regenerate reuse the card's id, so the new answer replaces the old one in place.
+  retry: async (card) => {
+    set((s) => ({ cards: upsert(s.cards, card.id, { status: 'generating', error: null }, () => card) }));
+    try {
+      await ipc.liveAnswer(card.question, card.id);
+    } catch {
+      // The failure arrives as an event on this card.
+    }
+  },
+
+  toggle: (id) => set((s) => ({ collapsed: { ...s.collapsed, [id]: !s.collapsed[id] } })),
+  clear: () => set({ cards: [], notice: null, collapsed: {} }),
+  dismissNotice: () => set({ notice: null }),
 }));

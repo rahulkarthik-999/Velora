@@ -96,3 +96,23 @@ describe('prompts', () => {
     expect(profilePrompt({ resumeText: 'x'.repeat(60) }).temperature).toBe(0);
   });
 });
+
+describe('null optional fields from the desktop app (regression: "Expected string, received null")', () => {
+  it('generates questions when company, description and preferences are null', () => {
+    const r = QuestionsInput.safeParse({
+      jobTitle: 'Frontend Engineer',
+      company: null,
+      jobDescription: null,
+      candidateSummary: null,
+      customInstructions: null,
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.company).toBeUndefined();
+  });
+
+  it('gives feedback when the job title and preferences are null', () => {
+    const r = FeedbackInput.safeParse({ question: 'Why this role?', answer: 'Because I love it.', jobTitle: null, customInstructions: null });
+    expect(r.success).toBe(true);
+    if (r.success) expect(feedbackPrompt(r.data).user).not.toContain('null');
+  });
+});

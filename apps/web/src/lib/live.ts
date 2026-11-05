@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { block } from '@/lib/practice';
+import { block, optionalText } from '@/lib/practice';
 
 // ============================================================================
 // Live interview copilot: answer suggestions and cloud transcription
@@ -40,19 +40,19 @@ export const TranscribeInput = z.object({
   /** Base64 WAV. */
   audio: z.string().min(100).max(Math.ceil((MAX_AUDIO_BYTES * 4) / 3) + 4),
   /** Vocabulary hints such as the job title and technologies. */
-  prompt: z.string().max(800).optional(),
-  language: z.string().regex(/^[a-z]{2}$/).optional(),
+  prompt: optionalText(z.string().max(800)),
+  language: optionalText(z.string().regex(/^[a-z]{2}$/)),
 });
 
-const customInstructions = z.string().trim().max(1_500).optional();
+const customInstructions = optionalText(z.string().trim().max(1_500));
 
 export const LiveAnswerInput = z.object({
   question: z.string().trim().min(3, 'No question was heard yet').max(2_000),
   /** Recent conversation, oldest first, for context. */
-  conversation: z.string().max(6_000).optional(),
-  jobTitle: z.string().trim().max(200).optional(),
-  company: z.string().trim().max(200).optional(),
-  jobDescription: z.string().max(6_000).optional(),
+  conversation: optionalText(z.string().max(6_000)),
+  jobTitle: optionalText(z.string().trim().max(200)),
+  company: optionalText(z.string().trim().max(200)),
+  jobDescription: optionalText(z.string().max(6_000)),
   /** Relevant knowledge base passages (resume facts, notes, documents). */
   knowledge: z.array(z.string().max(1_200)).max(10).default([]),
   answerStyle: z.enum(['concise', 'detailed', 'star']).default('concise'),
@@ -81,8 +81,12 @@ export function liveAnswerPrompt(input: z.infer<typeof LiveAnswerInput>) {
     'The question comes from a speech transcript and may contain transcription errors or several sentences; work out what is actually being asked and restate it briefly as "question".',
     'Rules:',
     "- Ground everything about the candidate's own background in the knowledge passages. Never invent employers, titles, projects, metrics, dates or achievements.",
-    '- If the passages do not cover the question, answer from general knowledge and keep personal claims generic.',
-    '- For technical questions, answer correctly and directly first, then add a short example.',
+    '- If the passages do not cover the question, answer from general knowledge and keep personal claims generic; never claim a project, employer or skill that is not in the passages.',
+    '- Technical questions: give the direct answer first, then the key technical details, a short practical example where it helps, and the main trade-off when there is one.',
+    '- Behavioural questions ("tell me about a time...", challenges, conflicts) and questions about the candidate\'s own experience: use STAR (situation, task, action, result) built only from the knowledge passages.',
+    '- If no passage gives a real example for such a question, do not make one up: write the STAR answer with [square-bracket placeholders] for every specific (project, company, team, numbers, outcome) so the candidate fills in their own, e.g. "At [company], I was working on [project] when...".',
+    '- If the interviewer asked several things at once, answer each part in order.',
+    '- It must sound natural spoken aloud in an interview: plain sentences, no academic tone, no lists inside "answer".',
     '- Write in the first person, as the candidate would say it. No preamble, no headings, no markdown.',
     `- The answer is ${STYLE_TEXT[input.answerStyle]}.`,
     '- keyPoints: 2-5 short bullet cues the candidate can glance at.',

@@ -1,7 +1,7 @@
 //! Live interview copilot: answers grounded in the knowledge base, the
 //! knowledge base itself, and the overlay window's behaviour.
 
-use std::{collections::HashSet, path::PathBuf, sync::atomic::Ordering};
+use std::{collections::HashSet, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -24,12 +24,14 @@ const CHUNKS_PER_ANSWER: i64 = 5;
 const MAX_QUESTION_CHARS: usize = 1_500;
 const MAX_CONVERSATION_CHARS: usize = 4_000;
 
+/// Lifecycle of one question card. `request_id` is the card's stable id: a retry or
+/// regenerate reuses it, so the answer always lands under the same question.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "status")]
 pub enum AnswerEvent {
-    Pending { request_id: String, question: String },
+    Pending { request_id: String, question: String, asked_at_ms: Option<i64>, heard_until_ms: Option<i64> },
     Done { request_id: String, answer: SavedAnswer, credits_remaining: Option<i64> },
-    Failed { request_id: String, message: String },
+    Failed { request_id: String, question: String, message: String },
 }
 
 #[derive(Deserialize)]
@@ -57,25 +59,66 @@ fn tail(text: &str, max: usize) -> String {
     cut.split_once(' ').map(|(_, rest)| rest.to_string()).unwrap_or(cut)
 }
 
-/// The interviewer's words since the last answer, and the conversation before them.
-pub fn question_from_transcript(segments: &[TranscriptSegment], answered_until_ms: i64) -> Option<(String, String, i64)> {
-    let fresh: Vec<&TranscriptSegment> =
+/// The interviewer's words since the last claimed question, and the conversation before them.
+/// Returns None when nothing new has been said: an old question is never re-asked by itself.
+pub fn question_from_transcript(segments: &[TranscriptSegment], answered_until_ms: i64) -> Option<(String, String, i64, i64)> {
+    let heard: Vec<&TranscriptSegment> =
         segments.iter().filter(|s| s.source == "systemAudio" && s.end_ms > answered_until_ms).collect();
-    let fresh = if fresh.is_empty() {
-        // Nothing new: answer the interviewer's last words again (e.g. "regenerate").
-        segments.iter().rev().filter(|s| s.source == "systemAudio").take(2).collect::<Vec<_>>().into_iter().rev().collect()
-    } else {
-        fresh
-    };
+    // Everything heard is claimed, including repeats, so a dropped repeat never returns later.
+    let until = heard.iter().map(|s| s.end_ms).max().unwrap_or(answered_until_ms);
+    let mut fresh: Vec<&TranscriptSegment> = Vec::new();
+    for s in heard {
+        // Two segments with the same words are one sentence heard twice.
+        if !fresh.iter().any(|f| normalise(&f.text) == normalise(&s.text)) {
+            fresh.push(s);
+        }
+    }
     let first = fresh.first()?;
-    let until = fresh.iter().map(|s| s.end_ms).max().unwrap_or(answered_until_ms);
+    let asked_at = first.start_ms;
     let question = tail(&fresh.iter().map(|s| s.text.trim()).collect::<Vec<_>>().join(" "), MAX_QUESTION_CHARS);
+    if question.chars().filter(|c| c.is_alphanumeric()).count() < 3 {
+        return None;
+    }
     let before: Vec<String> = segments
         .iter()
         .filter(|s| s.start_ms < first.start_ms)
         .map(|s| format!("{}: {}", speaker(s), s.text.trim()))
         .collect();
-    Some((question, tail(&before.join("\n"), MAX_CONVERSATION_CHARS), until))
+    Some((question, tail(&before.join("\n"), MAX_CONVERSATION_CHARS), asked_at, until))
+}
+
+fn normalise(text: &str) -> String {
+    text.chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect::<String>().to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The JSON sent to /api/live/answer. Optional context is left out when missing, never
+/// sent as null: the server's schema treats a field as optional, not nullable.
+pub fn answer_body(
+    question: &str,
+    conversation: &str,
+    job: Option<&crate::storage::Job>,
+    knowledge: Vec<String>,
+    style: &str,
+    custom_instructions: &str,
+) -> Value {
+    let mut body = serde_json::Map::new();
+    body.insert("question".into(), json!(question));
+    body.insert("knowledge".into(), json!(knowledge));
+    body.insert("answerStyle".into(), json!(style));
+    let mut optional = |key: &str, value: &str| {
+        let value = value.trim();
+        if !value.is_empty() {
+            body.insert(key.into(), json!(value));
+        }
+    };
+    optional("conversation", conversation);
+    if let Some(j) = job {
+        optional("jobTitle", &j.title);
+        optional("company", &j.company);
+        optional("jobDescription", &j.description.chars().take(6_000).collect::<String>());
+    }
+    optional("customInstructions", custom_instructions);
+    Value::Object(body)
 }
 
 /// Resume facts plus knowledge base passages relevant to the question, without duplicates.
@@ -104,84 +147,89 @@ fn live_session(state: &AppState) -> Option<String> {
 }
 
 /// Generates an answer. With no question, uses what the interviewer said since the last answer.
-pub fn answer(app: &AppHandle, question: Option<String>) -> AppResult<SavedAnswer> {
+/// Generates an answer. With no question, uses what the interviewer said since the last
+/// claimed question. Several answers can be in flight at once, one per question card.
+pub fn answer(app: &AppHandle, question: Option<String>, request_id: Option<String>) -> AppResult<SavedAnswer> {
     let state = app.state::<AppState>();
-    if state.answering.swap(true, Ordering::AcqRel) {
-        return Err(AppError::Internal("Already writing an answer.".into()));
-    }
-    let result = answer_inner(app, &state, question);
-    state.answering.store(false, Ordering::Release);
-    result
-}
-
-fn answer_inner(app: &AppHandle, state: &AppState, question: Option<String>) -> AppResult<SavedAnswer> {
     let settings = state.settings.get();
-    let session_id = live_session(state);
+    let session_id = live_session(&state);
     let segments = match &session_id {
         Some(id) => state.db.segments(id)?,
         None => Vec::new(),
     };
 
-    let (question, conversation, heard_until) = match question.map(|q| q.trim().to_string()).filter(|q| !q.is_empty()) {
+    let (question, conversation, asked_at, heard_until) = match question.map(|q| q.trim().to_string()).filter(|q| !q.is_empty()) {
         Some(q) => {
             let convo = segments.iter().map(|s| format!("{}: {}", speaker(s), s.text.trim())).collect::<Vec<_>>().join("\n");
-            (q.chars().take(MAX_QUESTION_CHARS).collect(), tail(&convo, MAX_CONVERSATION_CHARS), None)
+            (q.chars().take(MAX_QUESTION_CHARS).collect(), tail(&convo, MAX_CONVERSATION_CHARS), None, None)
         }
         None => {
-            let answered = *state.answered_until_ms.lock().expect("lock");
-            let (q, c, until) = question_from_transcript(&segments, answered).ok_or_else(|| {
-                AppError::InvalidSettings("No question heard yet. Wait for the interviewer, or type a question.".into())
-            })?;
-            (q, c, Some(until))
+            // Claim the range now, before the request: a question asked while this answer is
+            // being written becomes its own card instead of being merged or dropped.
+            let mut answered = state.answered_until_ms.lock().expect("lock");
+            let (q, c, at, until) = question_from_transcript(&segments, *answered)
+                .ok_or_else(|| AppError::InvalidSettings("No new question yet. Wait for the interviewer, or type a question.".into()))?;
+            *answered = (*answered).max(until);
+            (q, c, Some(at), Some(until))
         }
     };
 
-    let token = api::load_token()?
-        .ok_or_else(|| AppError::InvalidSettings("Connect your Velora account on the Account page to get answers.".into()))?;
-    let request_id = uuid::Uuid::new_v4().to_string();
-    let _ = app.emit(COPILOT_ANSWER, AnswerEvent::Pending { request_id: request_id.clone(), question: question.clone() });
+    let request_id = request_id.filter(|id| !id.is_empty() && id.len() <= 64).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let fail = |message: String| {
+        let _ = app.emit(COPILOT_ANSWER, AnswerEvent::Failed { request_id: request_id.clone(), question: question.clone(), message });
+    };
+    let Some(token) = api::load_token()? else {
+        let err = AppError::InvalidSettings("Sign in to your Velora account to get answers.".into());
+        fail(err.to_string());
+        return Err(err);
+    };
+    let _ = app.emit(
+        COPILOT_ANSWER,
+        AnswerEvent::Pending { request_id: request_id.clone(), question: question.clone(), asked_at_ms: asked_at, heard_until_ms: heard_until },
+    );
 
-    let job = settings.copilot.job_id.as_deref().map(|id| state.db.job(id)).transpose()?.flatten();
+    let job = match settings.copilot.job_id.as_deref() {
+        Some(id) => state.db.job(id).unwrap_or_else(|e| {
+            log::warn!("Could not load the selected job: {e}");
+            None
+        }),
+        None => None,
+    };
     let style = match settings.answer_style {
         AnswerStyle::Concise => "concise",
         AnswerStyle::Detailed => "detailed",
         AnswerStyle::Star => "star",
     };
-    let body = json!({
-        "question": question,
-        "conversation": (!conversation.is_empty()).then_some(&conversation),
-        "jobTitle": job.as_ref().map(|j| &j.title),
-        "company": job.as_ref().map(|j| &j.company).filter(|c| !c.is_empty()),
-        "jobDescription": job.as_ref().map(|j| j.description.chars().take(6_000).collect::<String>()).filter(|d| !d.is_empty()),
-        "knowledge": knowledge_for(state, &question)?,
-        "answerStyle": style,
-        "customInstructions": (!settings.custom_instructions.trim().is_empty()).then_some(&settings.custom_instructions),
+    // Missing context never blocks an answer: it's simply left out.
+    let knowledge = knowledge_for(&state, &question).unwrap_or_else(|e| {
+        log::warn!("Knowledge search failed: {e}");
+        Vec::new()
     });
+    let body = answer_body(&question, &conversation, job.as_ref(), knowledge, style, &settings.custom_instructions);
 
     let api = Api::new(&settings.api_base_url);
-    let resp: Result<AiResponse, ApiError> = api.post("/api/live/answer", Some(&token), &body);
-    let resp = match resp {
+    let resp: AiResponse = match api.post("/api/live/answer", Some(&token), &body) {
         Ok(r) => r,
         Err(e) => {
+            log::warn!("Live answer failed: {e:?}");
             if let ApiError::Unauthorized = e {
                 let _ = api::clear_token();
                 let _ = app.emit(crate::prep::ACCOUNT_CHANGED, json!({ "status": "signedOut" }));
             }
             let err = AppError::from(e);
-            let _ = app.emit(COPILOT_ANSWER, AnswerEvent::Failed { request_id, message: err.to_string() });
+            fail(err.to_string());
             return Err(err);
         }
     };
 
-    if let Some(until) = heard_until {
-        let mut answered = state.answered_until_ms.lock().expect("lock");
-        *answered = (*answered).max(until);
-    }
-    let saved = state.db.save_live_answer(session_id.as_deref(), &question, &resp.result)?;
-    let _ = app.emit(
-        COPILOT_ANSWER,
-        AnswerEvent::Done { request_id, answer: saved.clone(), credits_remaining: resp.credits_remaining },
-    );
+    let saved = match state.db.save_live_answer(session_id.as_deref(), &question, &resp.result) {
+        Ok(s) => s,
+        Err(e) => {
+            fail(e.to_string());
+            return Err(e);
+        }
+    };
+    let _ = app.emit(COPILOT_ANSWER, AnswerEvent::Done { request_id, answer: saved.clone(), credits_remaining: resp.credits_remaining });
     Ok(saved)
 }
 
@@ -190,8 +238,8 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> AppResult<T> + Send + '
 }
 
 #[tauri::command]
-pub async fn live_answer(app: AppHandle, question: Option<String>) -> AppResult<SavedAnswer> {
-    blocking(move || answer(&app, question)).await
+pub async fn live_answer(app: AppHandle, question: Option<String>, request_id: Option<String>) -> AppResult<SavedAnswer> {
+    blocking(move || answer(&app, question, request_id)).await
 }
 
 #[tauri::command]
@@ -285,7 +333,7 @@ pub fn answer_from_shortcut(app: &AppHandle) {
     let _ = commands::show_copilot(app.clone());
     let app = app.clone();
     std::thread::spawn(move || {
-        if let Err(e) = answer(&app, None) {
+        if let Err(e) = answer(&app, None, None) {
             let _ = app.emit(APP_NOTICE, e.to_string());
         }
     });
@@ -316,18 +364,65 @@ mod tests {
             seg("systemAudio", 3_000, 4_000, "So tell me about a project"),
             seg("systemAudio", 4_100, 5_000, "you're proud of."),
         ];
-        let (q, convo, until) = question_from_transcript(&segs, 1_000).unwrap();
+        let (q, convo, asked, until) = question_from_transcript(&segs, 1_000).unwrap();
         assert_eq!(q, "So tell me about a project you're proud of.");
         assert_eq!(convo, "Interviewer: Hi, thanks for joining.\nCandidate: Happy to be here.");
-        assert_eq!(until, 5_000);
+        assert_eq!((asked, until), (3_000, 5_000));
     }
 
     #[test]
-    fn repeats_last_question_when_nothing_new() {
+    fn never_re_asks_an_old_question_by_itself() {
         let segs = vec![seg("systemAudio", 0, 1_000, "What is Rust?")];
-        let (q, _, _) = question_from_transcript(&segs, 5_000).unwrap();
-        assert_eq!(q, "What is Rust?");
+        assert!(question_from_transcript(&segs, 5_000).is_none());
         assert!(question_from_transcript(&[], -1).is_none());
+    }
+
+    #[test]
+    fn a_sentence_heard_twice_is_one_question() {
+        let segs = vec![
+            seg("systemAudio", 0, 2_000, "What is the difference between useMemo and useCallback?"),
+            seg("systemAudio", 2_100, 4_000, "What is the difference between useMemo and useCallback?"),
+        ];
+        let (q, _, _, until) = question_from_transcript(&segs, -1).unwrap();
+        assert_eq!(q, "What is the difference between useMemo and useCallback?");
+        assert_eq!(until, 4_000);
+    }
+
+    #[test]
+    fn consecutive_questions_claim_separate_ranges() {
+        let mut segs = vec![seg("systemAudio", 0, 2_000, "How would you optimize a React application that takes too long to load?")];
+        let (q1, _, _, until1) = question_from_transcript(&segs, -1).unwrap();
+        segs.push(seg("systemAudio", 3_000, 5_000, "What is the difference between useMemo and useCallback?"));
+        let (q2, convo, _, _) = question_from_transcript(&segs, until1).unwrap();
+        assert!(q1.starts_with("How would you optimize"));
+        assert_eq!(q2, "What is the difference between useMemo and useCallback?");
+        assert!(convo.contains("optimize a React application"), "earlier questions are context, not part of the new one");
+    }
+
+    #[test]
+    fn answer_body_leaves_out_missing_context_instead_of_null() {
+        let body = answer_body("What is Rust?", "", None, vec![], "concise", "  ");
+        let obj = body.as_object().unwrap();
+        assert!(obj.values().all(|v| !v.is_null()), "no nulls: {body}");
+        for key in ["conversation", "jobTitle", "company", "jobDescription", "customInstructions"] {
+            assert!(!obj.contains_key(key), "{key} should be absent: {body}");
+        }
+        assert_eq!(obj["question"], "What is Rust?");
+        assert_eq!(obj["knowledge"], serde_json::json!([]));
+
+        let job = crate::storage::Job {
+            id: "j".into(),
+            title: "Frontend Engineer".into(),
+            company: String::new(),
+            description: "React, TypeScript".into(),
+            updated_at_ms: 0,
+        };
+        let body = answer_body("Q?", "Interviewer: hi", Some(&job), vec!["fact".into()], "star", "Be brief");
+        let obj = body.as_object().unwrap();
+        assert_eq!(obj["jobTitle"], "Frontend Engineer");
+        assert!(!obj.contains_key("company"), "an empty company is left out");
+        assert_eq!(obj["customInstructions"], "Be brief");
+        assert!(obj.values().all(|v| !v.is_null()));
     }
 
     #[test]

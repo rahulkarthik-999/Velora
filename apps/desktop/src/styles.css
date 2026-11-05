@@ -3,27 +3,36 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
-  --color-accent: #c9a96e;
-  --color-accent-strong: #b08d4f;
+  --font-sans: 'Inter Variable', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --color-accent: #d4b47a;
+  --color-accent-strong: #c09a5a;
 }
 
+/* Light */
 :root {
-  --bg: #f7f7f8;
+  --bg: #f6f5f2;
   --surface: #ffffff;
-  --surface-2: #f1f1f3;
-  --border: #e4e4e7;
-  --text: #18181b;
-  --muted: #71717a;
+  --surface-2: #f0eee9;
+  --border: #e4e1da;
+  --border-strong: #d3cfc5;
+  --text: #17161a;
+  --muted: #6f6c75;
+  --shadow: 0 1px 2px rgb(20 18 14 / 0.04), 0 8px 24px -12px rgb(20 18 14 / 0.12);
+  --accent-glow: rgb(212 180 122 / 0.18);
 }
 
+/* Dark: near-black with warm undertones and a soft gold accent */
 .dark {
-  --bg: #0c0c0e;
-  --surface: #151518;
-  --surface-2: #1d1d21;
-  --border: #2a2a2f;
-  --text: #f4f4f5;
-  --muted: #a1a1aa;
+  --bg: #09090b;
+  --surface: #111114;
+  --surface-2: #18181c;
+  --border: rgb(255 255 255 / 0.07);
+  --border-strong: rgb(255 255 255 / 0.13);
+  --text: #f4f3f1;
+  --muted: #9b99a3;
+  --shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 16px 40px -24px rgb(0 0 0 / 0.8);
+  --accent-glow: rgb(212 180 122 / 0.14);
 }
 
 html,
@@ -38,6 +47,8 @@ body {
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 14px;
+  font-feature-settings: 'cv11', 'ss01';
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
@@ -46,12 +57,35 @@ input,
 select,
 textarea {
   user-select: text;
+  font: inherit;
+}
+
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+/* Page titles everywhere use the display face. */
+main h1 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 2.1rem;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
 }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.plan-featured {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent), 0 20px 50px -28px var(--color-accent);
 }
 
 .muted {
@@ -61,32 +95,40 @@ textarea {
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border-radius: 8px;
-  padding: 7px 12px;
+  gap: 7px;
+  border-radius: 10px;
+  padding: 8px 14px;
   font-weight: 500;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   background: var(--surface-2);
-  transition: background 120ms, opacity 120ms;
+  transition: background 140ms, border-color 140ms, opacity 140ms, transform 80ms, box-shadow 140ms;
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--border);
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--color-accent) 40%, var(--border-strong));
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .btn-primary {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: #18181b;
+  background: linear-gradient(180deg, #e2c793 0%, var(--color-accent) 55%, var(--color-accent-strong) 100%);
+  border-color: color-mix(in srgb, var(--color-accent-strong) 80%, black);
+  color: #1a1408;
+  font-weight: 600;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.35) inset, 0 8px 20px -10px var(--color-accent);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--color-accent-strong);
+  background: linear-gradient(180deg, #ead2a3 0%, #dbbd85 55%, var(--color-accent) 100%);
+  border-color: color-mix(in srgb, var(--color-accent-strong) 80%, black);
 }
 
 .btn-danger {
@@ -95,21 +137,29 @@ textarea {
 
 .field {
   width: 100%;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
   background: var(--surface-2);
-  padding: 7px 10px;
+  padding: 8px 11px;
   color: var(--text);
   outline: none;
+  transition: border-color 140ms, box-shadow 140ms;
 }
 
 .field:focus {
   border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+/* Thin, quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
 /* Copilot overlay: the window is transparent, so the panel sets its own opacity. */
@@ -119,4 +169,12 @@ textarea {
 
 .copilot-panel .card {
   background: color-mix(in srgb, var(--surface) var(--panel-alpha, 96%), transparent);
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation-duration: 0.01ms !important;
+  }
 }

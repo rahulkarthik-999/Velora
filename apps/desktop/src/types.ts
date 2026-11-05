@@ -253,3 +253,54 @@ export interface KnowledgeDoc {
   preview: string;
   createdAtMs: number;
 }
+
+// --- Plans and billing (from /api/billing/status) ---
+
+export type PlanId = 'STARTER' | 'PRO_MONTHLY' | 'PRO_QUARTERLY' | 'PRO_ANNUAL' | 'LIFETIME';
+export type BillingInterval = 'month' | 'quarter' | 'year' | 'one_time';
+
+export interface Allowances {
+  transcriptionMinutes: number;
+  aiCredits: number;
+  screenshots: number;
+}
+
+export interface PlanOffer {
+  id: PlanId;
+  name: string;
+  priceUsd: number;
+  interval: BillingInterval;
+  allowances: Allowances;
+  features: string[];
+}
+
+export type AccessReason = 'active' | 'no_plan' | 'payment_issue' | 'expired' | 'cancelled' | 'refunded';
+
+export interface Entitlement {
+  active: boolean;
+  reason: AccessReason;
+  plan: { id: PlanId; name: string; interval: BillingInterval; priceUsd?: number } | null;
+  status: string | null;
+  renewsAt: string | null;
+  cancelAtPeriodEnd: boolean;
+  resetsAt: string | null;
+  allowances: Allowances | null;
+  used: { aiCredits: number; transcriptionMinutes: number; screenshots: number };
+  remaining: { aiCredits: number; transcriptionMinutes: number; screenshots: number } | null;
+}
+
+export interface PaymentRecord {
+  externalId: string;
+  plan: PlanId | null;
+  amount: number;
+  currency: string;
+  status: string;
+  refundedAmount: number;
+  createdAt: string;
+}
+
+export interface BillingStatus {
+  entitlement: Entitlement;
+  payments: PaymentRecord[];
+  plans: PlanOffer[];
+}

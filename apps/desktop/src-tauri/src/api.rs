@@ -39,6 +39,8 @@ impl Api {
         let config = ureq::Agent::config_builder()
             // Keep error bodies: the server explains what went wrong.
             .http_status_as_error(false)
+            // Report redirects instead of following them: a followed POST would lose its body.
+            .max_redirects(0)
             .timeout_global(Some(Duration::from_secs(60)))
             .build();
         Self { base: base_url.trim_end_matches('/').to_string(), agent: config.into() }
@@ -73,6 +75,11 @@ impl Api {
                 Err(ApiError::Status(status, error_message(status, &body)))
             }
             401 => Err(ApiError::Unauthorized),
+            // A redirect means the server address is out of date; following it would drop the request body.
+            300..=399 => Err(ApiError::Status(
+                status,
+                format!("The Velora server address has changed. Set it to {} in AI Settings.", crate::settings::DEFAULT_API_BASE_URL),
+            )),
             _ => Err(ApiError::Status(status, error_message(status, &body))),
         }
     }

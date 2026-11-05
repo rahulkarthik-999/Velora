@@ -1,4 +1,5 @@
 mod api;
+mod billing;
 mod audio;
 mod documents;
 mod prep;
@@ -152,6 +153,9 @@ pub fn run() {
             prep::account_cancel_link,
             prep::account_register,
             prep::account_login,
+            billing::billing_status,
+            billing::billing_checkout,
+            billing::billing_portal,
             prep::account_sign_out,
             prep::import_resume,
             prep::get_resume,

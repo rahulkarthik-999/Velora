@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BookOpen, MessageSquareText, PanelTopOpen, Radio } from 'lucide-react';
 import { ipc } from '../../lib/ipc';
+import { PlanGate } from '../billing/PlanGate';
 import { useApp } from '../../stores/app';
 import { useTranscript } from '../../stores/transcript';
 import type { Job } from '../../types';
@@ -57,7 +58,7 @@ export function LiveInterviewPage() {
           <CaptureIndicators capture={session.capture} levels={levels} />
         </div>
       ) : (
-        <>
+        <PlanGate feature="The live interview copilot">
           {settings && (
             <div className="card grid gap-4 p-5 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5">
@@ -125,7 +126,7 @@ export function LiveInterviewPage() {
               Last session ended after <SessionTimer />. Its transcript and answers are under Transcripts.
             </p>
           )}
-        </>
+        </PlanGate>
       )}
     </div>
   );

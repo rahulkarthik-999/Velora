@@ -11,6 +11,10 @@ use tauri_plugin_global_shortcut::Shortcut;
 use crate::error::{AppError, AppResult};
 
 pub const SETTINGS_SCHEMA_VERSION: u32 = 1;
+/// The site's canonical host. The bare domain redirects here, and a redirected POST
+/// (sign-in, sign-up, AI requests) loses its body, so the app must call this host directly.
+pub const DEFAULT_API_BASE_URL: &str = "https://www.veloraweb.online";
+const OLD_API_BASE_URL: &str = "https://veloraweb.online";
 /// Matches the server's limit.
 pub const MAX_CUSTOM_INSTRUCTIONS: usize = 1_500;
 
@@ -161,7 +165,7 @@ impl Default for Settings {
             transcription: TranscriptionSettings::default(),
             copilot: CopilotSettings::default(),
             custom_instructions: String::new(),
-            api_base_url: "https://veloraweb.online".into(),
+            api_base_url: DEFAULT_API_BASE_URL.into(),
         }
     }
 }
@@ -227,7 +231,13 @@ impl SettingsStore {
     pub fn load(path: PathBuf) -> Self {
         let settings = match fs::read_to_string(&path) {
             Ok(raw) => match serde_json::from_str::<Settings>(&raw) {
-                Ok(s) if s.validate().is_ok() => s,
+                Ok(mut s) if s.validate().is_ok() => {
+                    // Saved by versions up to 0.3, before the site moved to www.
+                    if s.api_base_url.trim_end_matches('/') == OLD_API_BASE_URL {
+                        s.api_base_url = DEFAULT_API_BASE_URL.into();
+                    }
+                    s
+                }
                 Ok(_) | Err(_) => {
                     let backup = path.with_extension("corrupt.json");
                     log::warn!("Settings at {} are invalid; backing up to {} and using defaults", path.display(), backup.display());
@@ -324,6 +334,14 @@ mod tests {
         assert_eq!(s.shortcuts.toggle_copilot, "Ctrl+Alt+V");
         assert_eq!(s.shortcuts.answer_now, "Ctrl+Shift+Enter");
         assert!(s.copilot.auto_answer);
+    }
+
+    #[test]
+    fn old_bare_domain_api_url_moves_to_www() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(&path, r#"{ "apiBaseUrl": "https://veloraweb.online" }"#).unwrap();
+        assert_eq!(SettingsStore::load(path).get().api_base_url, DEFAULT_API_BASE_URL);
     }
 
     #[test]

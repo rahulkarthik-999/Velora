@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { ArrowLeft, ChevronLeft, ChevronRight, GraduationCap, Loader2, Mic, Sparkles, Square, Trash2 } from 'lucide-react';
 import { ipc } from '../../lib/ipc';
+import { PlanGate } from '../billing/PlanGate';
 import { useApp } from '../../stores/app';
 import { useTranscript } from '../../stores/transcript';
 import type { Difficulty, Job, PracticeFocus, PracticeItem, PracticeSessionSummary } from '../../types';
@@ -335,7 +336,9 @@ export function PracticePage() {
         </p>
       </header>
 
-      <NewPractice onCreated={setOpen} />
+      <PlanGate feature="Practice with AI feedback">
+        <NewPractice onCreated={setOpen} />
+      </PlanGate>
 
       {error && (
         <p role="alert" className="text-sm text-red-400">

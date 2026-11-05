@@ -25,6 +25,7 @@ import { ipc } from '../../lib/ipc';
 import { useApp } from '../../stores/app';
 import { AUTO_ANSWER_DELAY_MS, looksLikeQuestion, useCopilot } from '../../stores/copilot';
 import { useTranscript } from '../../stores/transcript';
+import { useBilling } from '../../stores/billing';
 import type { AnswerStyle, Job, Settings, Theme } from '../../types';
 import { TranscriptView } from '../transcript/TranscriptView';
 import { CaptureIndicators } from '../session/CaptureIndicators';
@@ -433,6 +434,13 @@ export function CopilotWindow() {
   const [question, setQuestion] = useState('');
   const askInput = useRef<HTMLInputElement>(null);
   const copilot = settings?.copilot;
+  const billing = useBilling((s) => s.status);
+  useEffect(() => {
+    useBilling.getState().refresh();
+    const onFocus = () => useBilling.getState().refresh();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
   const autoAnswer = copilot?.autoAnswer ?? false;
 
   useAutoAnswer(autoAnswer);
@@ -608,7 +616,23 @@ export function CopilotWindow() {
           </div>
         ))}
 
-        <AnswerCard />
+        {billing && !billing.entitlement.active ? (
+          <section className="card flex flex-col items-center gap-2 p-4 text-center">
+            <p className="font-medium">Choose a plan to get live answers</p>
+            <p className="muted text-[0.85em]">Plans include the live copilot, transcription and practice feedback.</p>
+            <button
+              className="btn btn-primary mt-1 py-1 text-xs"
+              onClick={() => {
+                useApp.getState().setPage('usage');
+                ipc.showMain();
+              }}
+            >
+              See plans
+            </button>
+          </section>
+        ) : (
+          <AnswerCard />
+        )}
 
         {copilot?.showTranscript && (inSession || segments.length > 0) && (
           <section className="card flex min-h-32 flex-1 flex-col p-2.5">

@@ -2,6 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   AccountEvent,
+  BillingStatus,
+  PlanId,
   AnswerEvent,
   KnowledgeDoc,
   SavedAnswer,
@@ -59,6 +61,9 @@ export const ipc = {
   accountRegister: (name: string, email: string, password: string, acceptTerms: boolean) =>
     call<void>('account_register', { name, email, password, acceptTerms }),
   accountLogin: (email: string, password: string) => call<void>('account_login', { email, password }),
+  billingStatus: () => call<BillingStatus>('billing_status'),
+  billingCheckout: (plan: PlanId) => call<void>('billing_checkout', { plan }),
+  billingPortal: () => call<void>('billing_portal'),
   accountSignOut: () => call<void>('account_sign_out'),
   importResume: (path: string) => call<ResumeInfo>('import_resume', { path }),
   getResume: () => call<ResumeInfo | null>('get_resume'),

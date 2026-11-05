@@ -157,6 +157,9 @@ pub fn session_start(app: &AppHandle, mode: SessionMode) -> AppResult<SessionSna
 
     session.start(mode, now_ms())?;
     crate::copilot::reset_answered(&state);
+    if mode == SessionMode::Live {
+        crate::api::warm_up(&settings.api_base_url);
+    }
     let session_id = session.id().expect("started session has an id").to_string();
     persist(&state, &session.snapshot(now_ms(), CaptureState::default()));
 

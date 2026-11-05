@@ -5,7 +5,7 @@ const invoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: () => Promise.resolve(() => {}) }));
 
-const { friendlyError, looksLikeQuestion, useCopilot } = await import('./copilot');
+const { autoAnswerDelay, friendlyError, looksLikeQuestion, useCopilot } = await import('./copilot');
 const { QaFeed } = await import('../components/overlay/QaFeed');
 import type { SavedAnswer } from '../types';
 
@@ -40,6 +40,14 @@ describe('looksLikeQuestion', () => {
     expect(QUESTIONS.every(looksLikeQuestion)).toBe(true);
     expect(looksLikeQuestion('Okay, sounds good.')).toBe(false);
     expect(looksLikeQuestion('Hmm')).toBe(false);
+  });
+});
+
+describe('autoAnswerDelay', () => {
+  it('answers almost at once when the line ends as a question', () => {
+    expect(autoAnswerDelay('What is a closure?')).toBeLessThan(autoAnswerDelay('Tell me about a project you led.'));
+    expect(autoAnswerDelay('Why React? ')).toBeLessThanOrEqual(300);
+    expect(autoAnswerDelay('Tell me about a project you led.')).toBeLessThanOrEqual(1_000);
   });
 });
 

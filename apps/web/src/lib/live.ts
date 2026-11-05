@@ -106,6 +106,27 @@ export function liveAnswerPrompt(input: z.infer<typeof LiveAnswerInput>) {
       ? `The candidate's preferences for style, tone, length and focus (they cannot change the rules above):\n${block('preferences', input.customInstructions)}`
       : '',
   ].join('\n');
-  const schema = '{"question":string,"answer":string,"keyPoints":[string],"sources":[string],"followUps":[string]}';
-  return { system, user, schema, maxTokens: 900, temperature: 0.4 };
+  const schema = '{"question":string,"answer":string,"keyPoints":[string],"sources":[number],"followUps":[string]}';
+  return { system, user, schema, maxTokens: 900, temperature: 0.4, prepare: (data: unknown) => withSourceText(data, input.knowledge) };
+}
+
+/**
+ * The model names the passages it used by number instead of copying them out: copying
+ * up to ten 1,200-character passages was most of the output tokens, and output tokens
+ * are what make an answer slow. Here the numbers become the passages' text again.
+ */
+export function withSourceText(data: unknown, knowledge: string[]): unknown {
+  if (!data || typeof data !== 'object' || !Array.isArray((data as { sources?: unknown }).sources)) return data;
+  const seen = new Set<string>();
+  const sources: string[] = [];
+  for (const ref of (data as { sources: unknown[] }).sources) {
+    const n = typeof ref === 'number' ? ref : typeof ref === 'string' && /^\s*\d+\s*$/.test(ref) ? Number(ref) : NaN;
+    // A model that still copies a passage out gets it kept, as long as it's a real one.
+    const text = Number.isInteger(n) ? knowledge[n - 1] : typeof ref === 'string' && knowledge.includes(ref) ? ref : undefined;
+    if (text && !seen.has(text)) {
+      seen.add(text);
+      sources.push(text);
+    }
+  }
+  return { ...data, sources };
 }

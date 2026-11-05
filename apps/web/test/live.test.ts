@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/db', () => ({ default: {} }));
 
-const { LiveAnswerInput, LiveAnswerOutput, TranscribeInput, liveAnswerPrompt } = await import('@/lib/live');
+const { LiveAnswerInput, LiveAnswerOutput, TranscribeInput, liveAnswerPrompt, withSourceText } = await import('@/lib/live');
 
 describe('live answer', () => {
   it('needs a question and caps knowledge passages', () => {
@@ -75,5 +75,26 @@ describe('null optional context (regression: "Expected string, received null")',
     const p = liveAnswerPrompt(LiveAnswerInput.parse({ question: 'Tell me about a challenging project you worked on.' }));
     expect(p.system).toContain('STAR');
     expect(p.system).toContain('never claim a project');
+  });
+});
+
+describe('live answer sources', () => {
+  const knowledge = ['Led the payments rewrite at Acme.', 'Five years of TypeScript.'];
+
+  it('turns passage numbers back into the passages, ignoring bad and repeated refs', () => {
+    const out = withSourceText({ answer: 'a', sources: [2, '1', 2, 9, 0, 'made up'] }, knowledge) as { sources: string[] };
+    expect(out.sources).toEqual(['Five years of TypeScript.', 'Led the payments rewrite at Acme.']);
+  });
+
+  it('keeps a passage the model copied out, if it is a real one', () => {
+    const out = withSourceText({ sources: ['Five years of TypeScript.'] }, knowledge) as { sources: string[] };
+    expect(out.sources).toEqual(['Five years of TypeScript.']);
+  });
+
+  it('asks the model for numbers and validates the mapped result', () => {
+    const p = liveAnswerPrompt(LiveAnswerInput.parse({ question: 'Tell me about payments', knowledge }));
+    expect(p.schema).toContain('"sources":[number]');
+    const raw = { question: 'Q', answer: 'A', keyPoints: [], sources: [1], followUps: [] };
+    expect(LiveAnswerOutput.parse(p.prepare!(raw)).sources).toEqual([knowledge[0]]);
   });
 });

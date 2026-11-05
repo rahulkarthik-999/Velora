@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { ipc } from '../../lib/ipc';
 import { useApp } from '../../stores/app';
-import { AUTO_ANSWER_DELAY_MS, looksLikeQuestion, useCopilot } from '../../stores/copilot';
+import { autoAnswerDelay, looksLikeQuestion, useCopilot } from '../../stores/copilot';
 import { useTranscript } from '../../stores/transcript';
 import { useBilling } from '../../stores/billing';
 import type { AnswerStyle, Job, Settings, Theme } from '../../types';
@@ -299,7 +299,7 @@ function useAutoAnswer(enabled: boolean) {
         if (!heardQuestion.current || live?.status !== 'active' || live.mode !== 'live') return;
         heardQuestion.current = false;
         useCopilot.getState().ask(null);
-      }, AUTO_ANSWER_DELAY_MS);
+      }, autoAnswerDelay(interviewer[interviewer.length - 1].text));
     });
     return () => {
       unsubscribe();

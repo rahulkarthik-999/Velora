@@ -179,7 +179,15 @@ export function profilePrompt(input: z.infer<typeof ProfileInput>) {
   return { system, user, schema, maxTokens: 2_000, temperature: 0 };
 }
 
-type Prompt = { system: string; user: string; schema: string; maxTokens: number; temperature: number };
+type Prompt = {
+  system: string;
+  user: string;
+  schema: string;
+  maxTokens: number;
+  temperature: number;
+  /** Turns the model's raw JSON into the endpoint's output shape before validation. */
+  prepare?: (data: unknown) => unknown;
+};
 
 /**
  * Shared handling for practice endpoints: desktop auth, rate limit, monthly
@@ -255,7 +263,7 @@ export async function handlePractice<I extends z.ZodTypeAny, O extends z.ZodType
       ],
     });
 
-    const output = outputSchema.safeParse(result.data);
+    const output = outputSchema.safeParse(prompt.prepare ? prompt.prepare(result.data) : result.data);
     if (!output.success) {
       console.error(`[practice:${name}] invalid AI output`, output.error.issues.slice(0, 3));
       // Our failure, not the customer's: give the credits back but keep the cost for tracking.

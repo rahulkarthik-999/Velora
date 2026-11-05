@@ -2,8 +2,19 @@ import { create } from 'zustand';
 import { ipc } from '../lib/ipc';
 import type { AnswerEvent, SavedAnswer } from '../types';
 
-/** Wait this long after the interviewer's last sentence before auto-answering. */
-export const AUTO_ANSWER_DELAY_MS = 1_400;
+/**
+ * Wait this long after the interviewer's last transcript line before auto-answering. The
+ * line itself arrives only after 650 ms of silence plus transcription, so this is extra
+ * time on top of a pause already heard: kept short, and shorter still when the line ends
+ * as a finished question.
+ */
+export const AUTO_ANSWER_DELAY_MS = 800;
+export const AUTO_ANSWER_QUESTION_DELAY_MS = 250;
+
+/** How long to wait before answering, given the interviewer's latest line. */
+export function autoAnswerDelay(lastLine: string): number {
+  return /\?\s*$/.test(lastLine) ? AUTO_ANSWER_QUESTION_DELAY_MS : AUTO_ANSWER_DELAY_MS;
+}
 
 const QUESTION_START =
   /^(what|why|how|when|where|who|which|can|could|would|will|do|does|did|is|are|have|has|tell|walk|describe|explain|give|share|talk|imagine|suppose)\b/i;

@@ -1,7 +1,7 @@
 //! Client for the Velora web API (veloraweb.online). The OpenAI key lives on
 //! the server; the desktop app only holds its own revocable device token.
 
-use std::time::Duration;
+use std::{sync::OnceLock, time::Duration};
 
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -36,14 +36,7 @@ impl From<ApiError> for AppError {
 
 impl Api {
     pub fn new(base_url: &str) -> Self {
-        let config = ureq::Agent::config_builder()
-            // Keep error bodies: the server explains what went wrong.
-            .http_status_as_error(false)
-            // Report redirects instead of following them: a followed POST would lose its body.
-            .max_redirects(0)
-            .timeout_global(Some(Duration::from_secs(60)))
-            .build();
-        Self { base: base_url.trim_end_matches('/').to_string(), agent: config.into() }
+        Self { base: base_url.trim_end_matches('/').to_string(), agent: shared_agent() }
     }
 
     pub fn post<B: Serialize, R: DeserializeOwned>(&self, path: &str, token: Option<&str>, body: &B) -> Result<R, ApiError> {
@@ -84,6 +77,40 @@ impl Api {
             _ => Err(ApiError::Status(status, error_message(status, &body))),
         }
     }
+}
+
+/// One agent for the whole app. Clones share its connection pool, so the TLS connection
+/// to Velora stays open between requests instead of being set up again (DNS, TCP and TLS
+/// handshake, often 300 ms or more) for every live answer and transcription clip.
+fn shared_agent() -> ureq::Agent {
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT
+        .get_or_init(|| {
+            ureq::Agent::config_builder()
+                // Keep error bodies: the server explains what went wrong.
+                .http_status_as_error(false)
+                // Report redirects instead of following them: a followed POST would lose its body.
+                .max_redirects(0)
+                .timeout_global(Some(Duration::from_secs(60)))
+                .max_idle_connections_per_host(4)
+                .max_idle_age(Duration::from_secs(90))
+                .build()
+                .into()
+        })
+        .clone()
+}
+
+/// Opens the connection to Velora and wakes the answer function ahead of time (when a live
+/// session starts), so the first answer pays for neither the handshake nor a cold start.
+/// Failures are ignored: it's only a warm-up.
+pub fn warm_up(base_url: &str) {
+    let url = format!("{}/api/live/answer", base_url.trim_end_matches('/'));
+    std::thread::spawn(move || {
+        if let Ok(mut resp) = shared_agent().get(&url).call() {
+            // Reading the (empty) body returns the connection to the pool.
+            let _ = resp.body_mut().read_to_string();
+        }
+    });
 }
 
 /// Optional fields are sent by leaving them out, never as null: the server's schemas

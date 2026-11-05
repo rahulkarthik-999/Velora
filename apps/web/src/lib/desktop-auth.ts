@@ -56,9 +56,12 @@ export async function getDesktopCaller(req: NextRequest): Promise<DesktopCaller 
   const device = await prisma.device.findUnique({ where: { tokenHash: sha256(token) } });
   if (!device || device.revokedAt) return null;
 
-  // Record activity at most once a minute to avoid a write per request.
+  // Record activity at most once a minute to avoid a write per request. Not awaited: it's
+  // bookkeeping, and the caller (often a live answer) shouldn't wait on it.
   if (!device.lastUsedAt || Date.now() - device.lastUsedAt.getTime() > 60_000) {
-    await prisma.device.update({ where: { id: device.id }, data: { lastUsedAt: new Date() } });
+    prisma.device
+      .update({ where: { id: device.id }, data: { lastUsedAt: new Date() } })
+      .catch((e) => console.warn('[desktop-auth] could not record device activity', e));
   }
   return { userId: device.userId, deviceId: device.id };
 }

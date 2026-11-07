@@ -162,6 +162,22 @@ main h1 {
   scrollbar-color: var(--border-strong) transparent;
 }
 
+/* Ensure cursor does not change shape when hovering over answers in Copilot */
+[data-testid="qa-card"],
+[data-testid="qa-card"] *,
+[data-testid="qa-answer"],
+[data-testid="qa-answer"] *,
+[data-testid="qa-question"],
+[data-testid="qa-question"] * {
+  cursor: default !important;
+  user-select: none !important;
+}
+
+[data-testid="qa-card"] button,
+[data-testid="qa-card"] button * {
+  cursor: default !important;
+}
+
 /* Copilot overlay: the window is transparent, so the panel sets its own opacity. */
 .copilot-panel {
   background: color-mix(in srgb, var(--bg) var(--panel-alpha, 96%), transparent);

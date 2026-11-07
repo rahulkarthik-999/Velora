@@ -5,7 +5,13 @@ import type { SessionMode, SessionSnapshot, Settings } from '../types';
 export type Page =
   | 'overview'
   | 'practice'
+  | 'mock'
+  | 'reports'
   | 'live'
+  | 'coding'
+  | 'sql'
+  | 'system_design'
+  | 'roadmap'
   | 'sessions'
   | 'resume'
   | 'knowledge'

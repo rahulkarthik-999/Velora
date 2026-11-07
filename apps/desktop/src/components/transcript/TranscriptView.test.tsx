@@ -40,7 +40,7 @@ describe('TranscriptView', () => {
 
   it('marks low-confidence lines', () => {
     render(<TranscriptView segments={[seg({ confidence: 0.3 })]} onSegmentSaved={() => {}} empty="" />);
-    expect(screen.getByTitle('Low confidence. Click to correct.')).toBeTruthy();
+    expect(screen.getByLabelText('Low confidence, edit transcript')).toBeTruthy();
   });
 
   it('saves a correction through Rust and reports the stored line', async () => {

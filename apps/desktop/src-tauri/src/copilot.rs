@@ -1,5 +1,6 @@
 //! Live interview copilot: answers grounded in the knowledge base, the
 //! knowledge base itself, and the overlay window's behaviour.
+//! All AI calls go through the Velora web API; no provider keys are stored in the desktop app.
 
 use std::{collections::HashSet, path::PathBuf};
 
@@ -8,7 +9,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{
-    api::{self, Api, ApiError},
+    api::{self, Api},
     commands::{self, APP_NOTICE, SETTINGS_CHANGED},
     documents,
     error::{AppError, AppResult},
@@ -146,7 +147,6 @@ fn live_session(state: &AppState) -> Option<String> {
     session.id().map(str::to_string)
 }
 
-/// Generates an answer. With no question, uses what the interviewer said since the last answer.
 /// Generates an answer. With no question, uses what the interviewer said since the last
 /// claimed question. Several answers can be in flight at once, one per question card.
 pub fn answer(app: &AppHandle, question: Option<String>, request_id: Option<String>) -> AppResult<SavedAnswer> {
@@ -178,11 +178,19 @@ pub fn answer(app: &AppHandle, question: Option<String>, request_id: Option<Stri
     let fail = |message: String| {
         let _ = app.emit(COPILOT_ANSWER, AnswerEvent::Failed { request_id: request_id.clone(), question: question.clone(), message });
     };
-    let Some(token) = api::load_token()? else {
-        let err = AppError::InvalidSettings("Sign in to your Velora account to get answers.".into());
-        fail(err.to_string());
-        return Err(err);
+    let token = match api::load_token() {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            let msg = "Sign in to your Velora account to get live AI answers.".to_string();
+            fail(msg.clone());
+            return Err(AppError::Internal(msg));
+        }
+        Err(e) => {
+            fail(e.to_string());
+            return Err(e);
+        }
     };
+
     let _ = app.emit(
         COPILOT_ANSWER,
         AnswerEvent::Pending { request_id: request_id.clone(), question: question.clone(), asked_at_ms: asked_at, heard_until_ms: heard_until },
@@ -205,24 +213,20 @@ pub fn answer(app: &AppHandle, question: Option<String>, request_id: Option<Stri
         log::warn!("Knowledge search failed: {e}");
         Vec::new()
     });
-    let body = answer_body(&question, &conversation, job.as_ref(), knowledge, style, &settings.custom_instructions);
 
+    let body = answer_body(&question, &conversation, job.as_ref(), knowledge, style, &settings.custom_instructions);
     let api = Api::new(&settings.api_base_url);
     let resp: AiResponse = match api.post("/api/live/answer", Some(&token), &body) {
         Ok(r) => r,
         Err(e) => {
-            log::warn!("Live answer failed: {e:?}");
-            if let ApiError::Unauthorized = e {
-                let _ = api::clear_token();
-                let _ = app.emit(crate::prep::ACCOUNT_CHANGED, json!({ "status": "signedOut" }));
-            }
             let err = AppError::from(e);
             fail(err.to_string());
             return Err(err);
         }
     };
 
-    let saved = match state.db.save_live_answer(session_id.as_deref(), &question, &resp.result) {
+    let resolved_q = resp.result.get("question").and_then(|v| v.as_str()).unwrap_or(&question);
+    let saved = match state.db.save_live_answer(session_id.as_deref(), resolved_q, &resp.result) {
         Ok(s) => s,
         Err(e) => {
             fail(e.to_string());
@@ -240,6 +244,148 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> AppResult<T> + Send + '
 #[tauri::command]
 pub async fn live_answer(app: AppHandle, question: Option<String>, request_id: Option<String>) -> AppResult<SavedAnswer> {
     blocking(move || answer(&app, question, request_id)).await
+}
+
+/// Takes a screenshot of the user's screen, identifies the question/problem, and generates an answer fast.
+pub fn answer_screen(app: &AppHandle) -> AppResult<SavedAnswer> {
+    let state = app.state::<AppState>();
+    let settings = state.settings.get();
+    let session_id = live_session(&state);
+
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let question_label = "Analyzing screen question…".to_string();
+    let fail = |message: String| {
+        let _ = app.emit(
+            COPILOT_ANSWER,
+            AnswerEvent::Failed {
+                request_id: request_id.clone(),
+                question: question_label.clone(),
+                message,
+            },
+        );
+    };
+
+    let token = match api::load_token() {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            let msg = "Sign in to your Velora account to analyze screen questions.".to_string();
+            fail(msg.clone());
+            return Err(AppError::Internal(msg));
+        }
+        Err(e) => {
+            fail(e.to_string());
+            return Err(e);
+        }
+    };
+
+    // Only hide the copilot window briefly when Screen Shield is OFF (when Screen Shield is ON,
+    // SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) already omits the window from BitBlt!).
+    let shield_on = crate::is_screen_shield_enabled();
+    let copilot_win = app.get_webview_window("copilot");
+    let hid_for_capture = if !shield_on {
+        let vis = copilot_win.as_ref().map(|w| w.is_visible().unwrap_or(false)).unwrap_or(false);
+        if vis {
+            if let Some(w) = &copilot_win {
+                let _ = w.hide();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(18));
+        }
+        vis
+    } else {
+        false
+    };
+
+    let capture_res = crate::screen::capture_screen_base64();
+    if hid_for_capture {
+        if let Some(w) = &copilot_win {
+            let _ = w.show();
+        }
+    }
+
+    // Emit Pending immediately so the UI shows the generating card without delay
+    let _ = app.emit(
+        COPILOT_ANSWER,
+        AnswerEvent::Pending {
+            request_id: request_id.clone(),
+            question: question_label.clone(),
+            asked_at_ms: None,
+            heard_until_ms: None,
+        },
+    );
+
+    let image_data = match capture_res {
+        Ok(img) => img,
+        Err(e) => {
+            fail(e.to_string());
+            return Err(e);
+        }
+    };
+
+    let job = match settings.copilot.job_id.as_deref() {
+        Some(id) => state.db.job(id).unwrap_or(None),
+        None => None,
+    };
+    let style = match settings.answer_style {
+        AnswerStyle::Concise => "concise",
+        AnswerStyle::Detailed => "detailed",
+        AnswerStyle::Star => "star",
+    };
+
+    let knowledge = knowledge_for(&state, "interview technical coding question").unwrap_or_default();
+
+    let mut body = serde_json::Map::new();
+    body.insert("image".into(), json!(image_data));
+    body.insert("knowledge".into(), json!(knowledge));
+    body.insert("answerStyle".into(), json!(style));
+    if let Some(j) = &job {
+        if !j.title.trim().is_empty() {
+            body.insert("jobTitle".into(), json!(j.title.trim()));
+        }
+        if !j.company.trim().is_empty() {
+            body.insert("company".into(), json!(j.company.trim()));
+        }
+        if !j.description.trim().is_empty() {
+            body.insert("jobDescription".into(), json!(j.description.chars().take(6_000).collect::<String>()));
+        }
+    }
+    if !settings.custom_instructions.trim().is_empty() {
+        body.insert("customInstructions".into(), json!(settings.custom_instructions.trim()));
+    }
+
+    let api = Api::new(&settings.api_base_url);
+    let resp: AiResponse = match api.post("/api/live/screen", Some(&token), &Value::Object(body)) {
+        Ok(r) => r,
+        Err(e) => {
+            let err = AppError::from(e);
+            fail(err.to_string());
+            return Err(err);
+        }
+    };
+
+    let resolved_question = resp.result.get("question").and_then(|v| v.as_str()).unwrap_or("Screen Question");
+    let saved = match state.db.save_live_answer(session_id.as_deref(), resolved_question, &resp.result) {
+        Ok(s) => s,
+        Err(e) => {
+            fail(e.to_string());
+            return Err(e);
+        }
+    };
+
+    let _ = app.emit(
+        COPILOT_ANSWER,
+        AnswerEvent::Done {
+            request_id,
+            answer: saved.clone(),
+            credits_remaining: resp.credits_remaining,
+        },
+    );
+
+    Ok(saved)
+}
+
+#[tauri::command]
+pub async fn live_screen_answer(app: AppHandle) -> AppResult<SavedAnswer> {
+    blocking(move || answer_screen(&app)).await
 }
 
 #[tauri::command]
@@ -334,6 +480,17 @@ pub fn answer_from_shortcut(app: &AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         if let Err(e) = answer(&app, None, None) {
+            let _ = app.emit(APP_NOTICE, e.to_string());
+        }
+    });
+}
+
+/// Captures the screen and answers the question shown on screen, triggered by global shortcut.
+pub fn screen_answer_from_shortcut(app: &AppHandle) {
+    let _ = commands::show_copilot(app.clone());
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = answer_screen(&app) {
             let _ = app.emit(APP_NOTICE, e.to_string());
         }
     });

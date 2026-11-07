@@ -8,8 +8,8 @@ import type { AnswerEvent, SavedAnswer } from '../types';
  * time on top of a pause already heard: kept short, and shorter still when the line ends
  * as a finished question.
  */
-export const AUTO_ANSWER_DELAY_MS = 800;
-export const AUTO_ANSWER_QUESTION_DELAY_MS = 250;
+export const AUTO_ANSWER_DELAY_MS = 50;
+export const AUTO_ANSWER_QUESTION_DELAY_MS = 0;
 
 /** How long to wait before answering, given the interviewer's latest line. */
 export function autoAnswerDelay(lastLine: string): number {
@@ -69,6 +69,8 @@ interface CopilotStore {
   toggle: (id: string) => void;
   clear: () => void;
   dismissNotice: () => void;
+  /** Take a screenshot of the screen, analyze the question, and answer. */
+  askScreen: () => Promise<void>;
 }
 
 const fromSaved = (a: SavedAnswer): QaCard => ({
@@ -182,4 +184,14 @@ export const useCopilot = create<CopilotStore>((set, get) => ({
   toggle: (id) => set((s) => ({ collapsed: { ...s.collapsed, [id]: !s.collapsed[id] } })),
   clear: () => set({ cards: [], notice: null, collapsed: {} }),
   dismissNotice: () => set({ notice: null }),
+  askScreen: async () => {
+    try {
+      await ipc.liveScreenAnswer();
+    } catch (e) {
+      const message = (e as Error).message;
+      if (!get().cards.some((c) => c.status === 'failed')) {
+        set({ notice: friendlyError(message) });
+      }
+    }
+  },
 }));

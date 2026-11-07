@@ -3,32 +3,30 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
-import { Logo, VeloraSymbol } from '@/components/brand/Logo';
-import {
-  LogOut,
-  Zap,
-  Plus,
-  FolderOpen,
-  Sparkles,
-  History,
-  Settings,
-} from 'lucide-react';
+import { Logo } from '@/components/brand/Logo';
+import { Download, LogOut, Sparkles } from 'lucide-react';
 import { useState, useEffect, type ReactNode } from 'react';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const [usage, setUsage] = useState<{ creditsUsed: number; creditsLimit: number; tier: string } | null>(null);
+  const [billing, setBilling] = useState<{
+    active: boolean;
+    planName: string;
+    creditsLeft: number;
+    minutesLeft: number;
+  } | null>(null);
 
   useEffect(() => {
-    fetch('/api/usage')
+    fetch('/api/billing/status')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data) {
-          setUsage({
-            creditsUsed: data.usage?.creditsUsed || 0,
-            creditsLimit: data.limits?.monthlyAICredits || 50,
-            tier: data.tier || 'FREE',
+        if (data?.entitlement) {
+          setBilling({
+            active: Boolean(data.entitlement.active),
+            planName: data.entitlement.plan?.name || 'No Plan',
+            creditsLeft: data.entitlement.remaining?.aiCredits ?? 0,
+            minutesLeft: data.entitlement.remaining?.transcriptionMinutes ?? 0,
           });
         }
       })
@@ -36,18 +34,21 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   const navLinks = [
-    { href: '/dashboard', label: 'Workspace' },
-    { href: '/dashboard/history', label: 'Deliverable History' },
-    { href: '/dashboard/settings', label: 'Settings & Quotas' },
+    { href: '/dashboard', label: 'Career Companion' },
+    { href: '/dashboard/history', label: 'Activity History' },
+    { href: '/dashboard/settings', label: 'Account & Quotas' },
   ];
 
   return (
     <div className="min-h-screen bg-velora-bg flex flex-col text-velora-text selection:bg-velora-gold/20 selection:text-velora-gold-light">
-      {/* Top Precision Bar */}
       <header className="border-b border-velora-border sticky top-0 z-50 bg-velora-bg/90 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-8">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-6">
             <Logo size="md" href="/" />
+            <span className="hidden lg:inline-flex items-center gap-1.5 text-[11px] font-mono text-velora-gold bg-velora-gold/10 border border-velora-gold/20 px-2.5 py-0.5 rounded-full">
+              <Sparkles className="w-3 h-3" />
+              Your AI Career Companion
+            </span>
 
             <nav className="flex items-center gap-1.5">
               {navLinks.map((link) => {
@@ -70,25 +71,29 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </div>
 
           <div className="flex items-center gap-3">
-            {usage && (
+            {billing && (
               <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-velora-surface border border-velora-border text-[11px] font-mono">
-                <span className="text-velora-gold font-medium">{usage.tier}</span>
+                <span className="text-velora-gold font-medium">{billing.planName}</span>
                 <span className="text-velora-text-muted">&bull;</span>
-                <span className="text-white font-medium">{usage.creditsUsed} / {usage.creditsLimit} credits</span>
+                <span className="text-white font-medium">
+                  {billing.creditsLeft} credits · {billing.minutesLeft}m audio
+                </span>
               </div>
             )}
 
-            <Link
-              href="/onboarding"
-              className="btn-gold text-xs py-1.5 px-3 flex items-center gap-1.5"
+            <a
+              href="https://github.com/ishaan-pareek/Velora/releases/latest"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary text-xs py-1.5 px-3 hidden md:flex items-center gap-1.5"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New Deliverable</span>
-            </Link>
+              <Download className="w-3.5 h-3.5 text-velora-gold" />
+              <span>Desktop App</span>
+            </a>
 
             <div className="flex items-center gap-2 pl-3 border-l border-velora-border">
               <div className="w-7 h-7 rounded-full bg-velora-surface-hover border border-velora-border flex items-center justify-center text-[10px] font-bold text-velora-gold">
-                {session?.user?.name?.[0] || 'U'}
+                {session?.user?.name?.[0] || session?.user?.email?.[0]?.toUpperCase() || 'U'}
               </div>
               <button
                 onClick={() => signOut({ callbackUrl: '/' })}
@@ -102,10 +107,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
-        {children}
-      </main>
+      <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-8">{children}</main>
     </div>
   );
 }

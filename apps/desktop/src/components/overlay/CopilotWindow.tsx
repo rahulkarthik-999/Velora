@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import clsx from 'clsx';
 import {
+  Camera,
   EyeOff,
   Keyboard,
   LayoutDashboard,
@@ -9,14 +10,16 @@ import {
   Radio,
   ScrollText,
   Send,
+  Shield,
+  ShieldOff,
   SlidersHorizontal,
   Sparkles,
   X,
   Zap,
 } from 'lucide-react';
-import { ipc } from '../../lib/ipc';
+import { ipc, onMainVisibilityChanged } from '../../lib/ipc';
 import { useApp } from '../../stores/app';
-import { autoAnswerDelay, looksLikeQuestion, useCopilot } from '../../stores/copilot';
+import { useCopilot } from '../../stores/copilot';
 import { useTranscript } from '../../stores/transcript';
 import { useBilling } from '../../stores/billing';
 import type { AnswerStyle, Job, Settings, Theme } from '../../types';
@@ -25,6 +28,9 @@ import { QaFeed } from './QaFeed';
 import { CaptureIndicators } from '../session/CaptureIndicators';
 import { SessionControls } from '../session/SessionControls';
 import { SessionTimer } from '../session/SessionTimer';
+import { makeDragAnywhere } from '../../lib/dragAnywhere';
+
+const dragWindow = makeDragAnywhere(() => getCurrentWindow().startDragging());
 
 const STATUS_LABEL = { idle: 'No session', active: 'Live', paused: 'Paused', ended: 'Ended' } as const;
 
@@ -33,6 +39,9 @@ type Panel = 'instructions' | 'overlay' | 'keys' | null;
 /** Keys that work while the panel has focus (global ones are in AI Settings). */
 const LOCAL_KEYS: [string, string][] = [
   ['Ctrl+Enter', 'Answer now'],
+  ['Ctrl+Shift+S / Alt+S', 'Scan screen question'],
+  ['Ctrl+Shift+M', 'Show / hide main Velora window'],
+  ['Ctrl+Shift+H', 'Toggle Screen Shield (clean mode)'],
   ['Ctrl+Shift+C', 'Copy answer'],
   ['Ctrl+R', 'Regenerate answer'],
   ['Alt+← / Alt+→', 'Previous / next answer'],
@@ -59,7 +68,6 @@ function IconButton({
   return (
     <button
       className={clsx('rounded p-1.5 hover:bg-[var(--surface-2)]', active && 'bg-[var(--color-accent)]/20 text-accent')}
-      title={title}
       aria-label={title}
       aria-pressed={active}
       onClick={onClick}
@@ -248,7 +256,9 @@ function KeysPanel({ onClose }: { onClose: () => void }) {
   const global: [string, string][] = shortcuts
     ? [
         [shortcuts.answerNow, 'Answer now'],
-        [shortcuts.toggleCopilot, 'Show / hide panel'],
+        [shortcuts.analyzeScreen || 'Ctrl+Shift+S', 'Scan screen question'],
+        [shortcuts.toggleMain || 'Ctrl+Shift+M', 'Show / hide main Velora window'],
+        [shortcuts.toggleCopilot, 'Show / hide Copilot panel'],
         [shortcuts.toggleAutoAnswer, 'Auto-answer on / off'],
         [shortcuts.toggleClickThrough, 'Click-through on / off'],
         [shortcuts.pauseResume, 'Pause / resume'],
@@ -280,8 +290,7 @@ function KeysPanel({ onClose }: { onClose: () => void }) {
 
 /** Answers once the interviewer pauses after something that sounds like a question. */
 function useAutoAnswer(enabled: boolean) {
-  const timer = useRef(0);
-  const heardQuestion = useRef(false);
+  const inFlight = useRef(false);
   useEffect(() => {
     if (!enabled) return;
     let seen = new Set(useTranscript.getState().segments.map((s) => s.id));
@@ -291,19 +300,20 @@ function useAutoAnswer(enabled: boolean) {
       seen = new Set(state.segments.map((s) => s.id));
       const interviewer = fresh.filter((s) => s.source === 'systemAudio');
       if (!interviewer.length) return;
-      if (interviewer.some((s) => looksLikeQuestion(s.text))) heardQuestion.current = true;
-      // Each new sentence restarts the wait, so long questions aren't cut off.
-      window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => {
-        const live = useApp.getState().session;
-        if (!heardQuestion.current || live?.status !== 'active' || live.mode !== 'live') return;
-        heardQuestion.current = false;
-        useCopilot.getState().ask(null);
-      }, autoAnswerDelay(interviewer[interviewer.length - 1].text));
+      const live = useApp.getState().session;
+      if (live?.status !== 'active' || live.mode !== 'live') return;
+
+      if (!inFlight.current) {
+        inFlight.current = true;
+        useCopilot.getState().ask(null).finally(() => {
+          setTimeout(() => {
+            inFlight.current = false;
+          }, 300);
+        });
+      }
     });
     return () => {
       unsubscribe();
-      window.clearTimeout(timer.current);
     };
   }, [enabled]);
 }
@@ -327,6 +337,37 @@ export function CopilotWindow() {
   const askInput = useRef<HTMLInputElement>(null);
   const copilot = settings?.copilot;
   const billing = useBilling((s) => s.status);
+  const [shieldOn, setShieldOn] = useState(true);
+  const [mainVisible, setMainVisible] = useState(true);
+
+  useEffect(() => {
+    ipc.getScreenShield().then(setShieldOn, () => {});
+    ipc.isMainVisible().then(setMainVisible, () => {});
+    const unlistenPromise = onMainVisibilityChanged((vis) => setMainVisible(vis));
+    return () => {
+      unlistenPromise.then((fn) => fn()).catch(() => {});
+    };
+  }, []);
+
+  const toggleShield = async () => {
+    try {
+      const next = await ipc.toggleScreenShield();
+      setShieldOn(next);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleToggleMain = async () => {
+    try {
+      const next = await ipc.toggleMain();
+      setMainVisible(next);
+    } catch {
+      // fallback if toggle_main unavailable
+      ipc.showMain().catch(() => {});
+    }
+  };
+
   useEffect(() => {
     useBilling.getState().refresh();
     const onFocus = () => useBilling.getState().refresh();
@@ -368,6 +409,15 @@ export function CopilotWindow() {
       } else if (ctrl && e.key === 'Enter' && !typing) {
         e.preventDefault();
         ask(null);
+      } else if (ctrl && e.shiftKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        toggleShield();
+      } else if ((ctrl && e.shiftKey && e.key.toLowerCase() === 's') || (e.altKey && !ctrl && e.key.toLowerCase() === 's')) {
+        e.preventDefault();
+        useCopilot.getState().askScreen();
+      } else if (ctrl && e.shiftKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        handleToggleMain();
       } else if (ctrl && e.shiftKey && e.key.toLowerCase() === 'c' && latest?.answer) {
         e.preventDefault();
         navigator.clipboard.writeText(latest.answer.answer.answer).then(() => useApp.getState().showNotice('Answer copied'));
@@ -412,11 +462,16 @@ export function CopilotWindow() {
   } as CSSProperties;
 
   return (
-    <div className="copilot-panel flex h-full flex-col overflow-hidden rounded-lg border border-[var(--border)]" style={style}>
-      {/* Custom title bar: the whole strip drags the window. */}
-      <header data-tauri-drag-region className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[var(--border)] px-2.5">
+    <div
+      className="copilot-panel flex h-full flex-col overflow-hidden rounded-lg border border-[var(--border)]"
+      style={style}
+      onMouseDown={dragWindow}
+      data-testid="copilot-drag-surface"
+    >
+      {/* Press anywhere that isn't a control and move to drag the window. */}
+      <header className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[var(--border)] px-2.5">
         <img src="/logo.png" alt="" className="pointer-events-none h-5 w-5 rounded" />
-        <span data-tauri-drag-region className="text-[13px] font-semibold">
+        <span className="text-[13px] font-semibold">
           Copilot
         </span>
         <span
@@ -437,29 +492,46 @@ export function CopilotWindow() {
           )}
         </span>
         <div className="ml-auto flex items-center">
-          <IconButton title={`Answer now (${settings?.shortcuts.answerNow ?? 'Ctrl+Enter'})`} onClick={() => useCopilot.getState().ask(null)}>
+          <IconButton
+            title={shieldOn ? 'Screen shield on' : 'Screen shield off'}
+            active={shieldOn}
+            onClick={toggleShield}
+          >
+            {shieldOn ? <Shield size={14} className="text-emerald-400" /> : <ShieldOff size={14} className="text-amber-400" />}
+          </IconButton>
+          <IconButton
+            title="Scan screen question"
+            onClick={() => useCopilot.getState().askScreen()}
+          >
+            <Camera size={14} />
+          </IconButton>
+          <IconButton title="Answer now" onClick={() => useCopilot.getState().ask(null)}>
             <Sparkles size={14} />
           </IconButton>
           <IconButton
-            title={`Auto-answer ${autoAnswer ? 'on' : 'off'} (${settings?.shortcuts.toggleAutoAnswer ?? ''})`}
+            title="Auto-answer"
             active={autoAnswer}
             onClick={() => settings && save({ ...settings, copilot: { ...settings.copilot, autoAnswer: !autoAnswer } })}
           >
             <Zap size={14} />
           </IconButton>
-          <IconButton title="Custom instructions (Ctrl+I)" active={panel === 'instructions'} onClick={() => togglePanel('instructions')}>
+          <IconButton title="Custom instructions" active={panel === 'instructions'} onClick={() => togglePanel('instructions')}>
             <MessageSquareText size={14} />
           </IconButton>
-          <IconButton title="Overlay and theme (Ctrl+,)" active={panel === 'overlay'} onClick={() => togglePanel('overlay')}>
+          <IconButton title="Overlay and theme" active={panel === 'overlay'} onClick={() => togglePanel('overlay')}>
             <SlidersHorizontal size={14} />
           </IconButton>
           <IconButton title="Keyboard shortcuts" active={panel === 'keys'} onClick={() => togglePanel('keys')}>
             <Keyboard size={14} />
           </IconButton>
-          <IconButton title="Open Velora" onClick={() => ipc.showMain()}>
+          <IconButton
+            title={mainVisible ? 'Hide main window' : 'Show main window'}
+            active={mainVisible}
+            onClick={handleToggleMain}
+          >
             <LayoutDashboard size={14} />
           </IconButton>
-          <IconButton title="Hide panel (session keeps running)" onClick={() => getCurrentWindow().hide()}>
+          <IconButton title="Hide Copilot" onClick={() => getCurrentWindow().hide()}>
             <EyeOff size={14} />
           </IconButton>
         </div>
@@ -486,9 +558,18 @@ export function CopilotWindow() {
         ) : (
           <>
             <span className="muted text-xs">{status === 'ended' ? 'Session ended' : 'Not listening'}</span>
-            <button className="btn btn-primary py-1 text-xs" disabled={pendingSession} onClick={() => useApp.getState().start('live')}>
-              <Radio size={13} /> Start listening
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                className="btn py-1 px-2 text-xs"
+                onClick={handleToggleMain}
+              >
+                <LayoutDashboard size={12} /> {mainVisible ? 'Hide Velora' : 'Show Velora'}
+              </button>
+              <button className="btn btn-primary py-1 text-xs" disabled={pendingSession} onClick={() => useApp.getState().start('live')}>
+                <Radio size={13} /> Start listening
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -561,6 +642,14 @@ export function CopilotWindow() {
           onChange={(e) => setQuestion(e.target.value)}
           aria-label="Ask a question"
         />
+        <button
+          className="btn px-2 py-1.5"
+          type="button"
+          aria-label="Analyze question on screen"
+          onClick={() => useCopilot.getState().askScreen()}
+        >
+          <Camera size={13} />
+        </button>
         <button className="btn btn-primary px-2 py-1.5" type="submit" disabled={!question.trim()} aria-label="Get answer">
           <Send size={13} />
         </button>

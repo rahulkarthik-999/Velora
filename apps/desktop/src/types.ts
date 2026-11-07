@@ -8,10 +8,11 @@ export interface ShortcutSettings {
   pauseResume: string;
   endSession: string;
   answerNow: string;
+  analyzeScreen: string;
+  toggleMain: string;
   toggleAutoAnswer: string;
   toggleClickThrough: string;
 }
-
 
 export interface CopilotSettings {
   /** Answer automatically when the interviewer finishes a question. */
@@ -146,6 +147,7 @@ export interface ResumeInfo {
   chars: number;
   importedAtMs: number;
   preview: string;
+  text?: string;
 }
 
 export type FactKind = 'skill' | 'experience' | 'project' | 'education' | 'other';

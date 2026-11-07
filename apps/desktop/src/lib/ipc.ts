@@ -66,6 +66,8 @@ export const ipc = {
   billingPortal: () => call<void>('billing_portal'),
   accountSignOut: () => call<void>('account_sign_out'),
   importResume: (path: string) => call<ResumeInfo>('import_resume', { path }),
+  saveResumeText: (fileName: string, text: string) =>
+    call<ResumeInfo>('save_resume_text', { fileName, text }),
   getResume: () => call<ResumeInfo | null>('get_resume'),
   readDocument: (path: string) => call<string>('read_document', { path }),
   getProfile: () => call<ProfileView>('get_profile'),
@@ -87,13 +89,24 @@ export const ipc = {
   showCopilot: () => call<void>('show_copilot'),
   toggleCopilot: () => call<void>('toggle_copilot'),
   showMain: () => call<void>('show_main'),
+  hideMain: () => call<void>('hide_main'),
+  toggleMain: () => call<boolean>('toggle_main'),
+  isMainVisible: () => call<boolean>('is_main_visible'),
   liveAnswer: (question: string | null, requestId: string | null) =>
     call<SavedAnswer>('live_answer', { question, requestId }),
+  liveScreenAnswer: () => call<SavedAnswer>('live_screen_answer'),
   getLiveAnswers: (sessionId: string) => call<SavedAnswer[]>('get_live_answers', { sessionId }),
   listKnowledge: () => call<KnowledgeDoc[]>('list_knowledge'),
   addKnowledgeNote: (title: string, text: string) => call<KnowledgeDoc>('add_knowledge_note', { title, text }),
   importKnowledge: (path: string) => call<KnowledgeDoc>('import_knowledge', { path }),
   deleteKnowledge: (id: string) => call<void>('delete_knowledge', { id }),
+  toggleScreenShield: () => call<boolean>('toggle_screen_shield'),
+  getScreenShield: () => call<boolean>('get_screen_shield'),
+  getCareerStore: <T = unknown>(key: string) => call<T | null>('get_career_store', { key }),
+  saveCareerStore: (key: string, value: unknown) => call<void>('save_career_store', { key, value }),
+  careerApiPost: <T = unknown>(path: string, payload: unknown) =>
+    call<T>('career_api_post', { path, body: payload }),
+  careerApiGet: <T = unknown>(path: string) => call<T>('career_api_get', { path }),
 };
 
 export function onCopilotAnswer(cb: (e: AnswerEvent) => void): Promise<UnlistenFn> {
@@ -118,4 +131,8 @@ export function onAppNotice(cb: (message: string) => void): Promise<UnlistenFn> 
 
 export function onAccountChanged(cb: (e: AccountEvent) => void): Promise<UnlistenFn> {
   return listen<AccountEvent>('account-changed', (e) => cb(e.payload));
+}
+
+export function onMainVisibilityChanged(cb: (visible: boolean) => void): Promise<UnlistenFn> {
+  return listen<boolean>('main-visibility-changed', (e) => cb(e.payload));
 }

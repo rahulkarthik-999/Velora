@@ -7,19 +7,20 @@ import { Providers } from './providers';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
-  title: 'Velora — Start with a goal. Finish with a result.',
-  description: 'Velora turns your intentions into actionable workflows and helps you carry them through to completion.',
+  title: 'Velora — Your AI Career Companion | Prepare smarter. Practice confidently. Perform better.',
+  description:
+    'Transform your career preparation with Velora: Resume Intelligence, Job Match Analyzer, Voice AI Mock Interviews, Live Interview Copilot, Technical Interview Assistants (Coding, SQL, System Design), and Personalized Learning Roadmaps.',
   metadataBase: new URL('https://veloraweb.online'),
   openGraph: {
-    title: 'Velora — Start with a goal. Finish with a result.',
-    description: 'Tell Velora what you need to accomplish. It turns your goal into a practical workflow.',
+    title: 'Velora — Your AI Career Companion',
+    description: 'Prepare smarter. Practice confidently. Perform better.',
     siteName: 'Velora',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Velora — Start with a goal. Finish with a result.',
-    description: 'Tell Velora what you need to accomplish. It turns your goal into a practical workflow.',
+    title: 'Velora — Your AI Career Companion',
+    description: 'Prepare smarter. Practice confidently. Perform better.',
   },
 };
 

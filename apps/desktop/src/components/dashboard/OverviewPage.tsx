@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
-import { ArrowRight, Check, Circle, GraduationCap, Radio } from 'lucide-react';
+import {
+  ArrowRight,
+  Award,
+  Briefcase,
+  Check,
+  Circle,
+  Code2,
+  Compass,
+  FileText,
+  Mic,
+  Radio,
+} from 'lucide-react';
 import { ipc } from '../../lib/ipc';
 import { formatDuration } from '../../lib/format';
 import { useApp, type Page } from '../../stores/app';
@@ -46,7 +57,7 @@ function Step({ done, title, detail, action, onAction }: { done: boolean; title:
   );
 }
 
-/** Home: what to do next, and a fast way into a live interview. */
+/** Career Dashboard: Prepare smarter. Practice confidently. Perform better. */
 export function OverviewPage() {
   const setPage = useApp((s) => s.setPage);
   const settings = useApp((s) => s.settings);
@@ -72,8 +83,8 @@ export function OverviewPage() {
   const steps = r && [
     { done: Boolean(account?.signedIn), title: 'Sign in to Velora', detail: 'Your account holds your plan and usage.', action: 'Sign in', onAction: go('account') },
     { done: active, title: 'Choose a plan', detail: 'Unlocks the live copilot, transcription and practice feedback.', action: 'See plans', onAction: go('usage') },
-    { done: r.facts > 0, title: 'Add your resume', detail: 'Answers are built from your real experience, never invented.', action: 'Import resume', onAction: go('resume') },
-    { done: Boolean(settings?.copilot.jobId), title: 'Pick the role you are interviewing for', detail: 'The job description shapes every answer.', action: 'Add a job', onAction: go('job') },
+    { done: r.facts > 0, title: 'Analyze & improve your resume', detail: 'Answers and mock interviews are built from your real experience, never invented.', action: 'Resume Intelligence', onAction: go('resume') },
+    { done: Boolean(settings?.copilot.jobId) || r.jobs > 0, title: 'Analyze the job you are targeting', detail: 'The job description shapes every mock question and live answer.', action: 'Job Match Analyzer', onAction: go('job') },
     { done: r.knowledge > 0, title: 'Add notes to your knowledge base', detail: 'Stories, projects and study notes the copilot can draw on.', action: 'Add notes', onAction: go('knowledge') },
   ];
   const remaining = steps?.filter((s) => !s.done).length ?? 0;
@@ -88,22 +99,62 @@ export function OverviewPage() {
         />
         <p className="muted text-sm">
           {greeting()}
-          {firstName ? `, ${firstName}` : ''}
+          {firstName ? `, ${firstName}` : ''} · Velora — Your AI Career Companion
         </p>
-        <h1 className="font-display mt-1 text-5xl leading-[1.05]">Walk into every interview prepared.</h1>
-        <p className="muted mt-3 max-w-xl">
-          Velora listens to the interviewer and suggests answers in real time, grounded in your own resume, notes and the
-          job you're going for.
+        <h1 className="font-display mt-1 text-5xl leading-[1.05]">
+          Prepare smarter. Practice confidently. Perform better.
+        </h1>
+        <p className="muted mt-3 max-w-2xl">
+          One unified career companion: analyze your resume and target job match, practice with a voice AI interviewer,
+          get real-time assistance in live interviews (audio + screen scan via <kbd className="font-mono text-xs">Ctrl+Shift+S</kbd>),
+          and follow a personalized learning roadmap.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <button className="btn btn-primary px-5 py-2.5" onClick={go('live')}>
-            <Radio size={16} /> Start live copilot
+            <Radio size={16} /> Start Live Copilot
           </button>
-          <button className="btn px-5 py-2.5" onClick={go('practice')}>
-            <GraduationCap size={16} /> Practice an interview
+          <button className="btn px-5 py-2.5" onClick={go('mock')}>
+            <Mic size={16} /> Voice AI Mock Interview
+          </button>
+          <button className="btn px-5 py-2.5" onClick={go('resume')}>
+            <FileText size={16} /> Resume Intelligence
           </button>
         </div>
       </header>
+
+      {/* Quick Pillar Cards */}
+      <section className="grid gap-3 sm:grid-cols-3">
+        {[
+          {
+            title: 'Resume & Job Match',
+            desc: 'ATS & impact scoring, editable bullet improvements, and job alignment analysis.',
+            page: 'job' as Page,
+            Icon: Briefcase,
+          },
+          {
+            title: 'Mock Interviews & Reports',
+            desc: 'Voice-based HR, Behavioral, Technical & System Design interviews with 7-point reports.',
+            page: 'reports' as Page,
+            Icon: Award,
+          },
+          {
+            title: 'Coding, SQL & System Design',
+            desc: 'Dedicated technical interview assistants and personalized learning roadmaps.',
+            page: 'coding' as Page,
+            Icon: Code2,
+          },
+        ].map(({ title, desc, page: targetPage, Icon }) => (
+          <button
+            key={title}
+            onClick={go(targetPage)}
+            className="card flex flex-col items-start gap-2 p-5 text-left transition-colors hover:bg-[var(--surface-2)]"
+          >
+            <Icon size={18} className="text-accent" />
+            <div className="text-sm font-semibold">{title}</div>
+            <p className="muted text-xs leading-relaxed">{desc}</p>
+          </button>
+        ))}
+      </section>
 
       {steps && remaining > 0 && (
         <section className="card px-6 py-2">
@@ -126,7 +177,7 @@ export function OverviewPage() {
           {[
             ['AI credits left', billing.entitlement.remaining.aiCredits, billing.entitlement.allowances.aiCredits],
             ['Transcription minutes left', billing.entitlement.remaining.transcriptionMinutes, billing.entitlement.allowances.transcriptionMinutes],
-            ['Knowledge base items', r?.knowledge ?? 0, null],
+            ['Screen scans left', billing.entitlement.remaining.screenshots, billing.entitlement.allowances.screenshots],
           ].map(([label, value, of]) => (
             <div key={label as string} className="card p-5">
               <div className="muted text-xs">{label}</div>
@@ -136,6 +187,21 @@ export function OverviewPage() {
           ))}
         </section>
       )}
+
+      <section className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+        <div className="flex items-center gap-3">
+          <Compass size={22} className="text-accent" />
+          <div>
+            <div className="text-sm font-semibold">Personalized Career Learning Roadmap</div>
+            <div className="muted text-xs">
+              Turn your skill gaps and interview reports into weekly learning goals and daily practice tasks.
+            </div>
+          </div>
+        </div>
+        <button className="btn text-xs" onClick={go('roadmap')}>
+          Open Roadmap <ArrowRight size={13} />
+        </button>
+      </section>
 
       <section>
         <div className="mb-3 flex items-center justify-between">

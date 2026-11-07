@@ -35,7 +35,7 @@ function Line({ segment, onSaved }: { segment: TranscriptSegment; onSaved: (s: T
           'h-fit shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase',
           segment.source === 'systemAudio' ? 'bg-sky-500/15 text-sky-500' : 'bg-[var(--color-accent)]/15 text-accent'
         )}
-        title={segment.source === 'systemAudio' ? 'From your speakers (usually the interviewer)' : 'From your microphone'}
+        aria-label={segment.source === 'systemAudio' ? 'From your speakers' : 'From your microphone'}
       >
         {SOURCE_LABEL[segment.source]}
       </span>
@@ -70,7 +70,7 @@ function Line({ segment, onSaved }: { segment: TranscriptSegment; onSaved: (s: T
               setDraft(segment.text);
               setEditing(true);
             }}
-            title={uncertain ? 'Low confidence. Click to correct.' : 'Click to correct'}
+            aria-label={uncertain ? 'Low confidence, edit transcript' : 'Edit transcript'}
           >
             {segment.text}
             {segment.corrected && <span className="muted ml-1 text-[10px]">(edited)</span>}

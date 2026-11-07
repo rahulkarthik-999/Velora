@@ -26,7 +26,7 @@ function Card({ card, n, compact }: { card: QaCard; n: number; compact: boolean 
   };
 
   return (
-    <article className="card flex flex-col gap-2 p-3" data-testid="qa-card" aria-busy={card.status === 'generating'}>
+    <article id={`qa-card-${card.id}`} className="card flex flex-col gap-2 p-3 cursor-default select-none" data-testid="qa-card" aria-busy={card.status === 'generating'}>
       <header className="flex items-center gap-2 text-[11px]">
         <span className="font-semibold uppercase tracking-wider text-accent">Q{n}</span>
         {card.askedAtMs !== null && <span className="muted tabular-nums">{formatDuration(card.askedAtMs)}</span>}
@@ -38,7 +38,7 @@ function Card({ card, n, compact }: { card: QaCard; n: number; compact: boolean 
         </span>
       </header>
 
-      <p className="select-text text-[0.9em] font-medium leading-snug" data-testid="qa-question">
+      <p className="cursor-default select-none text-[0.9em] font-medium leading-snug" data-testid="qa-question">
         <span className="muted font-normal">Interviewer: </span>
         {card.question}
       </p>
@@ -65,12 +65,11 @@ function Card({ card, n, compact }: { card: QaCard; n: number; compact: boolean 
           <div className="mb-1 flex items-center gap-1 text-[10.5px] font-semibold uppercase tracking-wider text-accent">
             <Sparkles size={11} /> Velora answer
             <span className="ml-auto flex items-center gap-0.5 normal-case tracking-normal">
-              <button className="muted rounded p-1 hover:bg-[var(--surface-2)]" title="Copy answer" aria-label="Copy answer" onClick={copy}>
+              <button className="muted rounded p-1 hover:bg-[var(--surface-2)]" aria-label="Copy answer" onClick={copy}>
                 <Copy size={12} />
               </button>
               <button
                 className="muted rounded p-1 hover:bg-[var(--surface-2)]"
-                title="Regenerate answer"
                 aria-label="Regenerate answer"
                 disabled={card.status === 'generating'}
                 onClick={() => retry(card)}
@@ -79,7 +78,6 @@ function Card({ card, n, compact }: { card: QaCard; n: number; compact: boolean 
               </button>
               <button
                 className="muted rounded p-1 hover:bg-[var(--surface-2)]"
-                title={collapsed ? 'Expand' : 'Collapse'}
                 aria-label={collapsed ? 'Expand answer' : 'Collapse answer'}
                 aria-expanded={!collapsed}
                 onClick={() => toggle(card.id)}
@@ -90,13 +88,13 @@ function Card({ card, n, compact }: { card: QaCard; n: number; compact: boolean 
           </div>
           {!collapsed && (
             <>
-              <p className={clsx('select-text whitespace-pre-wrap text-[1.05em] leading-relaxed', card.status === 'generating' && 'opacity-60')}>
+              <p className={clsx('cursor-default select-none whitespace-pre-wrap text-[1.05em] leading-relaxed', card.status === 'generating' && 'opacity-60')}>
                 {a.answer}
               </p>
               {!compact && a.keyPoints.length > 0 && (
                 <ul className="muted mt-1.5 list-disc space-y-0.5 pl-4 text-[0.88em]">
                   {a.keyPoints.map((k) => (
-                    <li key={k} className="select-text">
+                    <li key={k} className="cursor-default select-none">
                       {k}
                     </li>
                   ))}
@@ -108,7 +106,6 @@ function Card({ card, n, compact }: { card: QaCard; n: number; compact: boolean 
                     <button
                       key={f}
                       className="rounded-full border border-[var(--border)] px-2 py-0.5 text-left text-[0.78em] hover:bg-[var(--surface-2)]"
-                      title="Prepare an answer to this likely follow-up"
                       onClick={() => ask(f)}
                     >
                       {f}
@@ -150,7 +147,7 @@ function LiveCard({ listening }: { listening: boolean }) {
         <p className="muted mt-0.5 select-text">{pending || 'Waiting for the interviewer…'}</p>
       </div>
       {pending && (
-        <button className="btn py-1 text-xs" onClick={() => useCopilot.getState().ask(null)} title="Answer what was said now">
+        <button className="btn py-1 text-xs" onClick={() => useCopilot.getState().ask(null)}>
           <Mic size={12} /> Answer now
         </button>
       )}
@@ -166,10 +163,17 @@ export function QaFeed({ listening }: { listening: boolean }) {
   const ordered = useMemo(() => [...cards].sort((x, y) => x.createdAt - y.createdAt), [cards]);
   const latest = ordered[ordered.length - 1];
 
-  // Follow the newest card while it's being written.
+  // Keep the latest answer visible up top so the candidate can read comfortably without it jumping down.
   useEffect(() => {
-    end.current?.scrollIntoView?.({ block: 'end', behavior: 'smooth' });
-  }, [ordered.length, latest?.status]);
+    if (!latest) return;
+    const cardEl = document.getElementById(`qa-card-${latest.id}`);
+    if (latest.status === 'answered') {
+      // The answer stays up at the top of the viewing area
+      cardEl?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    } else {
+      cardEl?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [ordered.length, latest?.id, latest?.status]);
 
   return (
     <div className="flex flex-col gap-2">

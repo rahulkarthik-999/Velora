@@ -43,7 +43,9 @@ function DeviceSelect({
 
 const SHORTCUT_LABELS: Record<keyof ShortcutSettings, string> = {
   answerNow: 'Answer now',
-  toggleCopilot: 'Show / hide copilot panel',
+  analyzeScreen: 'Analyze screen question (Instant Vision)',
+  toggleCopilot: 'Show / hide Copilot panel',
+  toggleMain: 'Show / hide main Velora window',
   toggleAutoAnswer: 'Auto-answer on / off',
   toggleClickThrough: 'Click-through on / off',
   pauseResume: 'Pause / resume session',
@@ -229,7 +231,7 @@ export function SettingsPage() {
           <Row key={key} label={SHORTCUT_LABELS[key]} hint="Works from any app. Example: Ctrl+Shift+V">
             <input
               className="field font-mono"
-              value={draft.shortcuts[key]}
+              value={draft.shortcuts[key] ?? ''}
               spellCheck={false}
               aria-label={SHORTCUT_LABELS[key]}
               onChange={(e) => update({ shortcuts: { ...draft.shortcuts, [key]: e.target.value } })}

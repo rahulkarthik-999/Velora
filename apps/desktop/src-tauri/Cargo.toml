@@ -37,6 +37,7 @@ keyring = { version = "3", features = ["windows-native"] }
 base64 = "0.23"
 rfd = "0.17"
 zip = { version = "4", default-features = false, features = ["deflate"] }
+png = "0.18"
 
 [dev-dependencies]
 tempfile = "3"
@@ -47,3 +48,6 @@ lto = true
 opt-level = "s"
 panic = "abort"
 strip = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi"] }

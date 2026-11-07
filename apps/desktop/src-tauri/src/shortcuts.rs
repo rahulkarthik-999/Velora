@@ -50,8 +50,18 @@ pub fn handle(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
         }
         return;
     }
+    if matches(&configured.toggle_main) {
+        if let Err(e) = commands::toggle_main(app.clone()) {
+            log::info!("Shortcut {shortcut:?} ignored: {e}");
+        }
+        return;
+    }
     if matches(&configured.answer_now) {
         copilot::answer_from_shortcut(app);
+        return;
+    }
+    if matches(&configured.analyze_screen) {
+        copilot::screen_answer_from_shortcut(app);
         return;
     }
     let toggle = if matches(&configured.toggle_auto_answer) {

@@ -41,7 +41,7 @@ export function CaptureIndicators({
           <li
             key={key}
             className="flex items-center gap-1.5"
-            title={`${label}: ${STATUS_TEXT[status]}`}
+            aria-label={`${label}: ${STATUS_TEXT[status]}`}
             data-testid={`capture-${key}`}
             data-status={status}
           >

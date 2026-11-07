@@ -155,6 +155,14 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX idx_live_answers_session ON live_answers(session_id, created_at_ms);
     "#,
+    // v4: AI Career Companion store (resume intelligence, job match, mock interviews, reports, assistants, roadmap)
+    r#"
+    CREATE TABLE career_store (
+        key           TEXT PRIMARY KEY,
+        json          TEXT NOT NULL,
+        updated_at_ms INTEGER NOT NULL
+    );
+    "#,
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -216,6 +224,31 @@ impl Db {
 
     fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.conn.lock().expect("db lock poisoned")
+    }
+
+    pub fn get_career_store(&self, key: &str) -> AppResult<Option<serde_json::Value>> {
+        let raw: Option<String> = self
+            .conn()
+            .query_row("SELECT json FROM career_store WHERE key = ?1", [key], |r| r.get(0))
+            .optional()
+            .map_err(db_err)?;
+        match raw {
+            Some(s) => Ok(serde_json::from_str(&s).ok()),
+            None => Ok(None),
+        }
+    }
+
+    pub fn save_career_store(&self, key: &str, value: &serde_json::Value) -> AppResult<()> {
+        let json_str = serde_json::to_string(value)?;
+        let now = crate::now_ms() as i64;
+        self.conn()
+            .execute(
+                "INSERT INTO career_store (key, json, updated_at_ms) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(key) DO UPDATE SET json = excluded.json, updated_at_ms = excluded.updated_at_ms",
+                params![key, json_str, now],
+            )
+            .map_err(db_err)?;
+        Ok(())
     }
 
     pub fn upsert_session(&self, id: &str, mode: &str, started: i64, ended: Option<i64>, active_ms: i64, status: &str) -> AppResult<()> {
@@ -446,5 +479,13 @@ mod tests {
         Db::open(&path).unwrap().upsert_session("s1", "live", 0, None, 0, "active").unwrap();
         let db = Db::open(&path).unwrap();
         assert_eq!(db.sessions(10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn stores_and_loads_career_store_json() {
+        let db = Db::open_in_memory().unwrap();
+        assert!(db.get_career_store("roadmap").unwrap().is_none());
+        db.save_career_store("roadmap", &serde_json::json!({ "role": "Senior Frontend" })).unwrap();
+        assert_eq!(db.get_career_store("roadmap").unwrap().unwrap()["role"], "Senior Frontend");
     }
 }

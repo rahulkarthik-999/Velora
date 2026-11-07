@@ -21,6 +21,7 @@ use crate::{
 pub const SESSION_CHANGED: &str = "session-changed";
 pub const SETTINGS_CHANGED: &str = "settings-changed";
 pub const PIPELINE_EVENT: &str = "pipeline-event";
+pub const MAIN_VISIBILITY_CHANGED: &str = "main-visibility-changed";
 /// A short message for the user, shown as a toast in every window.
 pub const APP_NOTICE: &str = "app-notice";
 
@@ -342,6 +343,7 @@ fn window(app: &AppHandle, label: &str) -> AppResult<tauri::WebviewWindow> {
 #[tauri::command]
 pub fn show_copilot(app: AppHandle) -> AppResult<()> {
     let w = window(&app, "copilot")?;
+    crate::protect_window(&w, "copilot");
     w.show().map_err(|e| AppError::Internal(e.to_string()))?;
     w.set_focus().map_err(|e| AppError::Internal(e.to_string()))
 }
@@ -359,7 +361,61 @@ pub fn toggle_copilot(app: AppHandle) -> AppResult<()> {
 #[tauri::command]
 pub fn show_main(app: AppHandle) -> AppResult<()> {
     let w = window(&app, "main")?;
+    crate::protect_window(&w, "main");
     w.unminimize().map_err(|e| AppError::Internal(e.to_string()))?;
     w.show().map_err(|e| AppError::Internal(e.to_string()))?;
+    let _ = app.emit(MAIN_VISIBILITY_CHANGED, true);
     w.set_focus().map_err(|e| AppError::Internal(e.to_string()))
+}
+
+#[tauri::command]
+pub fn hide_main(app: AppHandle) -> AppResult<()> {
+    let w = window(&app, "main")?;
+    w.hide().map_err(|e| AppError::Internal(e.to_string()))?;
+    let _ = app.emit(MAIN_VISIBILITY_CHANGED, false);
+    Ok(())
+}
+
+/// Shows or hides the main Velora window while keeping the Copilot overlay untouched.
+#[tauri::command]
+pub fn toggle_main(app: AppHandle) -> AppResult<bool> {
+    let w = window(&app, "main")?;
+    let visible = w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false);
+    if visible {
+        hide_main(app)?;
+        Ok(false)
+    } else {
+        show_main(app)?;
+        Ok(true)
+    }
+}
+
+#[tauri::command]
+pub fn is_main_visible(app: AppHandle) -> AppResult<bool> {
+    let w = window(&app, "main")?;
+    Ok(w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
+}
+
+#[tauri::command]
+pub fn toggle_screen_shield(app: AppHandle) -> AppResult<bool> {
+    let current = crate::is_screen_shield_enabled();
+    let next = !current;
+    if let Some(w) = app.get_webview_window("copilot") {
+        crate::set_screen_protection(&w, next);
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        crate::set_screen_protection(&w, next);
+    }
+    let msg = if next {
+        "Screen Shield ON: Protected from capture"
+    } else {
+        "Screen Shield OFF: Clean mode (zero black box for Entire Screen share)"
+    };
+    let _ = app.emit(APP_NOTICE, msg.to_string());
+    Ok(next)
+}
+
+#[tauri::command]
+pub fn get_screen_shield() -> bool {
+    crate::is_screen_shield_enabled()
 }

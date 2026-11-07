@@ -82,7 +82,7 @@ impl Api {
 /// One agent for the whole app. Clones share its connection pool, so the TLS connection
 /// to Velora stays open between requests instead of being set up again (DNS, TCP and TLS
 /// handshake, often 300 ms or more) for every live answer and transcription clip.
-fn shared_agent() -> ureq::Agent {
+pub(crate) fn shared_agent() -> ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
     AGENT
         .get_or_init(|| {

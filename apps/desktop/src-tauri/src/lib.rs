@@ -12,6 +12,7 @@ mod settings;
 mod shortcuts;
 mod storage;
 mod system;
+mod screen;
 
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
@@ -52,9 +53,7 @@ fn fatal_startup_error(message: &str) -> ! {
     rfd::MessageDialog::new()
         .set_title("Velora can't start")
         .set_description(format!(
-            "{message}
-
-If this keeps happening, install the latest version from https://veloraweb.online/download."
+            "{message}\n\nIf this keeps happening, install the latest version from https://veloraweb.online/download."
         ))
         .set_level(rfd::MessageLevel::Error)
         .show();
@@ -107,6 +106,12 @@ pub fn run() {
             }
             copilot::apply_overlay(app.handle());
 
+            for label in ["main", "copilot"] {
+                if let Some(w) = app.get_webview_window(label) {
+                    protect_window(&w, label);
+                }
+            }
+
             // A shortcut taken by another app must not stop Velora from starting.
             if let Some(message) = shortcuts::apply_best_effort(app.handle(), &initial_shortcuts) {
                 log::warn!("{message}");
@@ -128,8 +133,22 @@ pub fn run() {
                         api.prevent_close();
                         let _ = window.hide();
                     }
-                    // Closing the main window quits the app, even if the panel is hidden.
-                    "main" => window.app_handle().exit(0),
+                    // If the copilot is visible, closing the main window hides the main window
+                    // so the copilot can stay active; if the copilot is hidden too, quit the app.
+                    "main" => {
+                        let copilot_visible = window
+                            .app_handle()
+                            .get_webview_window("copilot")
+                            .and_then(|c| c.is_visible().ok())
+                            .unwrap_or(false);
+                        if copilot_visible {
+                            api.prevent_close();
+                            let _ = window.hide();
+                            let _ = window.app_handle().emit(commands::MAIN_VISIBILITY_CHANGED, false);
+                        } else {
+                            window.app_handle().exit(0);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -158,6 +177,7 @@ pub fn run() {
             billing::billing_portal,
             prep::account_sign_out,
             prep::import_resume,
+            prep::save_resume_text,
             prep::get_resume,
             prep::read_document,
             prep::get_profile,
@@ -175,15 +195,25 @@ pub fn run() {
             prep::practice_record_start,
             prep::practice_record_stop,
             prep::practice_feedback,
+            prep::get_career_store,
+            prep::save_career_store,
+            prep::career_api_post,
+            prep::career_api_get,
             commands::show_copilot,
             commands::toggle_copilot,
             commands::show_main,
+            commands::hide_main,
+            commands::toggle_main,
+            commands::is_main_visible,
             copilot::live_answer,
+            copilot::live_screen_answer,
             copilot::get_live_answers,
             copilot::list_knowledge,
             copilot::add_knowledge_note,
             copilot::import_knowledge,
             copilot::delete_knowledge,
+            commands::toggle_screen_shield,
+            commands::get_screen_shield,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Velora");
@@ -196,4 +226,59 @@ pub fn run() {
             }
         }
     });
+}
+
+use std::sync::atomic::Ordering;
+
+static SCREEN_SHIELD_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub fn is_screen_shield_enabled() -> bool {
+    SCREEN_SHIELD_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn set_screen_protection(w: &tauri::WebviewWindow, enable: bool) {
+    let _ = w.set_skip_taskbar(true);
+    SCREEN_SHIELD_ENABLED.store(enable, Ordering::Relaxed);
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetWindowLongPtrW, SetWindowDisplayAffinity, SetWindowLongPtrW,
+            SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+            SWP_NOMOVE, SWP_NOSIZE, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+        };
+
+        if let Ok(hwnd) = w.hwnd() {
+            let raw_hwnd = HWND(hwnd.0 as _);
+            let affinity = if enable { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE };
+            unsafe {
+                if let Err(e) = SetWindowDisplayAffinity(raw_hwnd, affinity) {
+                    log::warn!("Failed to set SetWindowDisplayAffinity: {e}");
+                } else {
+                    log::info!("Set SetWindowDisplayAffinity({:?})", affinity.0);
+                }
+
+                let ex_style = GetWindowLongPtrW(raw_hwnd, GWL_EXSTYLE);
+                if ex_style != 0 {
+                    let new_ex_style = (ex_style & !(WS_EX_APPWINDOW.0 as isize)) | (WS_EX_TOOLWINDOW.0 as isize);
+                    SetWindowLongPtrW(raw_hwnd, GWL_EXSTYLE, new_ex_style);
+                    let _ = SetWindowPos(
+                        raw_hwnd,
+                        HWND_TOPMOST,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                    );
+                }
+            }
+        }
+    }
+}
+
+pub fn protect_window(w: &tauri::WebviewWindow, _label: &str) {
+    let enabled = is_screen_shield_enabled();
+    set_screen_protection(w, enabled);
 }

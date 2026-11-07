@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit, rateLimitError, serverError, unauthorized } from '@/lib/api-utils';
-import { getDesktopCaller } from '@/lib/desktop-auth';
+import { resolveApiCaller } from '@/lib/practice';
 import { QuotaError, releaseUsage, reserveUsage, settleUsage } from '@/lib/billing/entitlements';
 import { MAX_AUDIO_BYTES, TranscribeInput, transcribeModel, transcriptionCostUsd, wavDurationSec } from '@/lib/live';
 
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   const fail = (errorCode: string) =>
     reservationId ? releaseUsage(reservationId, errorCode, { provider: 'openai', model, latencyMs: Date.now() - started }) : undefined;
   try {
-    const caller = await getDesktopCaller(req);
+    const caller = await resolveApiCaller(req);
     if (!caller) return unauthorized();
     // A clip arrives after every sentence; allow a fast-talking conversation.
     if (!checkRateLimit(`transcribe:${caller.userId}`, 90, 60_000)) return rateLimitError();

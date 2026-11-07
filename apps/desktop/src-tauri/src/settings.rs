@@ -38,9 +38,11 @@ pub enum AnswerStyle {
 #[serde(rename_all = "camelCase", default)]
 pub struct ShortcutSettings {
     pub toggle_copilot: String,
+    pub toggle_main: String,
     pub pause_resume: String,
     pub end_session: String,
     pub answer_now: String,
+    pub analyze_screen: String,
     pub toggle_auto_answer: String,
     pub toggle_click_through: String,
 }
@@ -49,9 +51,11 @@ impl Default for ShortcutSettings {
     fn default() -> Self {
         Self {
             toggle_copilot: "Ctrl+Shift+V".into(),
+            toggle_main: "Ctrl+Shift+M".into(),
             pause_resume: "Ctrl+Shift+Space".into(),
             end_session: "Ctrl+Shift+E".into(),
             answer_now: "Ctrl+Shift+Enter".into(),
+            analyze_screen: "Ctrl+Shift+S".into(),
             toggle_auto_answer: "Ctrl+Shift+U".into(),
             toggle_click_through: "Ctrl+Shift+K".into(),
         }
@@ -59,12 +63,14 @@ impl Default for ShortcutSettings {
 }
 
 impl ShortcutSettings {
-    pub fn entries(&self) -> [(&'static str, &str); 6] {
+    pub fn entries(&self) -> [(&'static str, &str); 8] {
         [
             ("toggleCopilot", self.toggle_copilot.as_str()),
+            ("toggleMain", self.toggle_main.as_str()),
             ("pauseResume", self.pause_resume.as_str()),
             ("endSession", self.end_session.as_str()),
             ("answerNow", self.answer_now.as_str()),
+            ("analyzeScreen", self.analyze_screen.as_str()),
             ("toggleAutoAnswer", self.toggle_auto_answer.as_str()),
             ("toggleClickThrough", self.toggle_click_through.as_str()),
         ]
@@ -333,6 +339,8 @@ mod tests {
         let s = SettingsStore::load(path).get();
         assert_eq!(s.shortcuts.toggle_copilot, "Ctrl+Alt+V");
         assert_eq!(s.shortcuts.answer_now, "Ctrl+Shift+Enter");
+        assert_eq!(s.shortcuts.analyze_screen, "Ctrl+Shift+S");
+        assert_eq!(s.shortcuts.toggle_main, "Ctrl+Shift+M");
         assert!(s.copilot.auto_answer);
     }
 

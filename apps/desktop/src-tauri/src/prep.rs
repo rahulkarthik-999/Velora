@@ -1,4 +1,4 @@
-//! Interview preparation: account connection, resume/profile, jobs and practice.
+//! Interview preparation: account connection, resume/profile, jobs, practice and career companion API bridge.
 //! AI calls go through the Velora web API; the OpenAI key never reaches this app.
 
 use std::{
@@ -236,6 +236,7 @@ pub struct ResumeInfo {
     #[serde(flatten)]
     record: ResumeRecord,
     preview: String,
+    text: String,
 }
 
 #[tauri::command]
@@ -246,14 +247,23 @@ pub async fn import_resume(app: AppHandle, path: String) -> AppResult<ResumeInfo
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "resume".into());
         let record = app.state::<AppState>().db.insert_resume(&name, &text)?;
         log::info!("Imported resume {name} ({} chars)", record.chars);
-        Ok(ResumeInfo { record, preview: text.chars().take(800).collect() })
+        Ok(ResumeInfo { record, preview: text.chars().take(800).collect(), text })
     })
     .await
 }
 
 #[tauri::command]
+pub fn save_resume_text(state: State<'_, AppState>, file_name: String, text: String) -> AppResult<ResumeInfo> {
+    let record = state.db.insert_resume(&file_name, &text)?;
+    Ok(ResumeInfo { record, preview: text.chars().take(800).collect(), text })
+}
+
+#[tauri::command]
 pub fn get_resume(state: State<'_, AppState>) -> AppResult<Option<ResumeInfo>> {
-    Ok(state.db.latest_resume()?.map(|(record, text)| ResumeInfo { record, preview: text.chars().take(800).collect() }))
+    Ok(state
+        .db
+        .latest_resume()?
+        .map(|(record, text)| ResumeInfo { record, preview: text.chars().take(800).collect(), text }))
 }
 
 /// Reads a job description from a file, for pasting into a job.
@@ -553,6 +563,74 @@ pub async fn practice_feedback(app: AppHandle, item_id: String) -> AppResult<Pra
         let resp: AiResponse<Value> = signed_out_on_401(&app, api(&state).post("/api/practice/feedback", Some(&token), &body))?;
         let score = resp.result["score"].as_f64().unwrap_or(0.0);
         state.db.set_practice_feedback(&item_id, &resp.result, score)
+    })
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// Career Companion Store & API Bridge
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn get_career_store(app: AppHandle, key: String) -> AppResult<Option<Value>> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        if let Some(val) = state.db.get_career_store(&key)? {
+            return Ok(Some(val));
+        }
+        // If local store is empty and user has a desktop token, fetch from Web career context
+        if let Ok(Some(token)) = api::load_token() {
+            let encoded_key = key.replace(':', "%3A").replace(' ', "%20");
+            let path = format!("/api/career/context?key={}", encoded_key);
+            if let Ok(resp) = api(&state).get::<Value>(&path, &token) {
+                let data = &resp["data"];
+                if !data.is_null() {
+                    let _ = state.db.save_career_store(&key, data);
+                    return Ok(Some(data.clone()));
+                }
+            }
+        }
+        Ok(None)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn save_career_store(app: AppHandle, key: String, value: Value) -> AppResult<()> {
+    blocking(move || {
+        let state = app.state::<AppState>();
+        state.db.save_career_store(&key, &value)?;
+        if let Ok(Some(token)) = api::load_token() {
+            let body = json!({ "key": key, "data": value });
+            let _ = api(&state).post::<_, Value>("/api/career/context", Some(&token), &body);
+        }
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn career_api_post(app: AppHandle, path: String, body: Value) -> AppResult<Value> {
+    if !path.starts_with("/api/") {
+        return Err(AppError::InvalidSettings("API path must start with /api/".into()));
+    }
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let token = require_token()?;
+        signed_out_on_401(&app, api(&state).post::<_, Value>(&path, Some(&token), &body))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn career_api_get(app: AppHandle, path: String) -> AppResult<Value> {
+    if !path.starts_with("/api/") {
+        return Err(AppError::InvalidSettings("API path must start with /api/".into()));
+    }
+    blocking(move || {
+        let state = app.state::<AppState>();
+        let token = require_token()?;
+        signed_out_on_401(&app, api(&state).get::<Value>(&path, &token))
     })
     .await
 }

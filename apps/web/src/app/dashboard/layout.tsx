@@ -1,15 +1,22 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
 import { Logo } from '@/components/brand/Logo';
-import { Download, LogOut, Sparkles } from 'lucide-react';
+import { Download, Loader2, LogOut, Sparkles } from 'lucide-react';
 import { useState, useEffect, type ReactNode } from 'react';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { data: session } = useSession();
+  const router = useRouter();
+  // Signed-out visitors go to sign-in and come back here afterwards.
+  const { data: session, status } = useSession({
+    required: true,
+    onUnauthenticated() {
+      router.replace(`/auth/signin?callbackUrl=${encodeURIComponent(pathname || '/dashboard')}`);
+    },
+  });
   const [billing, setBilling] = useState<{
     active: boolean;
     planName: string;
@@ -18,6 +25,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   } | null>(null);
 
   useEffect(() => {
+    if (status !== 'authenticated') return;
     fetch('/api/billing/status')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -31,7 +39,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         }
       })
       .catch(() => {});
-  }, [pathname]);
+  }, [pathname, status]);
+
+  if (status !== 'authenticated') {
+    return (
+      <div className="min-h-screen bg-velora-bg flex items-center justify-center">
+        <Loader2 className="w-5 h-5 animate-spin text-velora-text-muted" aria-label="Loading" />
+      </div>
+    );
+  }
 
   const navLinks = [
     { href: '/dashboard', label: 'Career Companion' },
@@ -82,9 +98,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             )}
 
             <a
-              href="https://github.com/ishaan-pareek/Velora/releases/latest"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/download"
               className="btn-secondary text-xs py-1.5 px-3 hidden md:flex items-center gap-1.5"
             >
               <Download className="w-3.5 h-3.5 text-velora-gold" />
@@ -98,7 +112,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               <button
                 onClick={() => signOut({ callbackUrl: '/' })}
                 className="text-velora-text-muted hover:text-white transition-colors p-1"
-                title="Sign out"
+                aria-label="Sign out"
               >
                 <LogOut className="w-3.5 h-3.5" />
               </button>

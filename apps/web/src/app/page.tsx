@@ -222,7 +222,7 @@ export default function LandingPage() {
 
           <div className="flex items-center gap-3">
             <Link
-              href="/login"
+              href="/auth/signin"
               className="text-xs text-velora-text-secondary hover:text-white transition-colors px-3 py-1.5"
             >
               Sign in
@@ -262,9 +262,7 @@ export default function LandingPage() {
                 <ArrowRight className="w-4 h-4" />
               </Link>
               <a
-                href="https://github.com/ishaan-pareek/Velora/releases/latest"
-                target="_blank"
-                rel="noopener noreferrer"
+                href="/download"
                 className="btn-secondary py-3 px-5 text-sm flex items-center gap-2"
               >
                 <Download className="w-4 h-4 text-velora-gold" />
@@ -614,9 +612,7 @@ export default function LandingPage() {
               Terms
             </Link>
             <a
-              href="https://github.com/ishaan-pareek/Velora/releases/latest"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/download"
               className="hover:text-white transition-colors"
             >
               Windows Desktop

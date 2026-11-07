@@ -17,6 +17,15 @@ const nextConfig = {
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
     ],
   },
+  async redirects() {
+    // Common sign-in addresses people type or bookmark.
+    return [
+      { source: '/login', destination: '/auth/signin', permanent: true },
+      { source: '/signin', destination: '/auth/signin', permanent: true },
+      { source: '/signup', destination: '/auth/signin?mode=signup', permanent: true },
+      { source: '/register', destination: '/auth/signin?mode=signup', permanent: true },
+    ];
+  },
   async headers() {
     return [
       {

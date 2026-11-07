@@ -1,19 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import prisma from '@/lib/db';
 import { checkRateLimit, rateLimitError, serverError, success } from '@/lib/api-utils';
 import { clientIp, issueDeviceToken } from '@/lib/desktop-auth';
-import { EmailSchema, dummyVerify, verifyPassword } from '@/lib/password';
+import { AccountError, SignInFields, verifyPasswordAccount } from '@/lib/accounts';
 
 export const dynamic = 'force-dynamic';
 
-const LoginInput = z.object({
-  email: EmailSchema,
-  password: z.string().min(1, 'Enter your password').max(200),
-  deviceName: z.string().trim().min(1).max(100),
-});
-
-const INVALID = "That email and password don't match an account.";
+const LoginInput = z.object({ ...SignInFields, deviceName: z.string().trim().min(1).max(100) });
 
 // Email + password sign-in from the desktop app. Google accounts use the browser sign-in.
 export async function POST(req: NextRequest) {
@@ -31,25 +24,11 @@ export async function POST(req: NextRequest) {
       return rateLimitError();
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email },
-      select: { id: true, name: true, email: true, passwordHash: true, deletedAt: true },
-    });
-    if (!user || user.deletedAt) {
-      await dummyVerify(password);
-      return NextResponse.json({ error: INVALID }, { status: 401 });
-    }
-    if (!user.passwordHash) {
-      await dummyVerify(password);
-      return NextResponse.json({ error: 'This account signs in with Google. Choose "Continue with Google".' }, { status: 401 });
-    }
-    if (!(await verifyPassword(password, user.passwordHash))) {
-      return NextResponse.json({ error: INVALID }, { status: 401 });
-    }
-
+    const user = await verifyPasswordAccount(email, password);
     const { token, deviceId } = await issueDeviceToken(user.id, deviceName);
     return success({ token, deviceId, user: { name: user.name, email: user.email } });
   } catch (error) {
+    if (error instanceof AccountError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error('[POST /api/desktop/auth/login]', error);
     return serverError();
   }
